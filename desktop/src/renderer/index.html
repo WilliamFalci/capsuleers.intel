@@ -1,0 +1,1684 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <title>Capsuleers.IA</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0a0b0d;
+      --bg2: #101216;
+      --panel: #14171c;
+      --line: #23272f;
+      --orange: #ff7a18;
+      --orange-dim: #c85a10;
+      --text: #d7dade;
+      --muted: #7b8290;
+      --user: #1c130a;
+      --user-line: #ff7a18;
+    }
+    * { box-sizing: border-box; }
+    /* The app window is a fixed-size shell (frameless, 16:9): the document itself must
+       NEVER scroll — only the inner #chat area does. overflow:hidden on html+body kills
+       any startup scrollbar; min-height:0 lets the flex children shrink instead of
+       pushing the body past 100vh (the default flex min-height:auto would otherwise
+       force a document scrollbar). */
+    html, body { height: 100%; overflow: hidden; }
+    body {
+      margin: 0; height: 100vh; min-height: 0; display: flex; flex-direction: column;
+      background: var(--bg);
+      background-image:
+        linear-gradient(rgba(255,122,24,.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,122,24,.025) 1px, transparent 1px);
+      background-size: 28px 28px;
+      color: var(--text);
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+    /* Industrial header = custom title bar (draggable) */
+    header {
+      display: flex; align-items: center; gap: .9rem;
+      padding: .55rem 0 .55rem 1.1rem;
+      background: linear-gradient(180deg, #16191f, #0e1014);
+      border-bottom: 2px solid var(--orange);
+      box-shadow: 0 2px 18px rgba(255,122,24,.12);
+      -webkit-app-region: drag; user-select: none;
+    }
+    .spacer { flex: 1; }
+    /* Header buttons (ghost, monochrome) */
+    .tag-btn {
+      -webkit-app-region: no-drag; cursor: pointer;
+      display: inline-flex; align-items: center; gap: .42rem;
+      padding: .34rem .72rem;
+      background: rgba(255,255,255,.025);
+      border: 1px solid var(--line); border-radius: 5px;
+      color: #aeb4bf;
+      font-family: ui-monospace, monospace; font-size: .72rem; font-weight: 600;
+      letter-spacing: .1em; text-transform: uppercase;
+      transition: background .14s, border-color .14s, color .14s;
+    }
+    .tag-btn:hover { background: rgba(255,122,24,.1); border-color: var(--orange); color: #fff; }
+    .tag-btn:disabled { opacity: .45; cursor: default; background: rgba(255,255,255,.02);
+                        border-color: var(--line); color: var(--muted); }
+    .tag-btn.active { background: rgba(255,122,24,.14); border-color: var(--orange); color: var(--orange); }
+    .tag-btn .ico { width: 14px; height: 14px; flex: 0 0 auto; stroke: currentColor; fill: none; }
+    .win-controls { display: flex; align-items: center; -webkit-app-region: no-drag; }
+    .wc {
+      width: 38px; height: 30px; flex: 0 0 38px;
+      display: flex; align-items: center; justify-content: center; text-align: center;
+      padding: 0; margin: 0; border: 0; background: transparent; cursor: pointer;
+      color: var(--muted); font-family: ui-monospace, monospace; font-size: .95rem; line-height: 1;
+    }
+    .wc:hover { background: #1d2128; color: var(--text); }
+    .wc.close:hover { background: var(--orange); color: #1a0d02; }
+
+    /* Mini-mode (always-on-top icon) */
+    #mini { display: none; }
+    body.mini header, body.mini #chat, body.mini footer, body.mini .toolbar { display: none; }
+    body.mini #mini {
+      display: flex; align-items: center; justify-content: center;
+      position: fixed; inset: 0; -webkit-app-region: drag;  /* drag to move */
+      background: var(--bg);
+    }
+    #mini img {
+      width: 66px; height: 66px; cursor: pointer; -webkit-app-region: no-drag;
+      filter: drop-shadow(0 0 7px rgba(255,122,24,.55)); transition: transform .12s;
+    }
+    #mini img:hover { transform: scale(1.1); }
+
+    /* Info page */
+    #about {
+      position: fixed; inset: 0; z-index: 50;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(5,6,8,.78); backdrop-filter: blur(3px);
+    }
+    #about[hidden] { display: none; }
+    .about-panel {
+      position: relative; width: min(560px, 88vw); padding: 1.8rem 1.8rem 1.6rem;
+      background: linear-gradient(180deg, #14171c, #0e1014);
+      border: 1px solid var(--orange); border-top: 3px solid var(--orange);
+      box-shadow: 0 0 40px rgba(255,122,24,.18); text-align: center;
+      clip-path: polygon(0 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%);
+    }
+    .about-close {
+      position: absolute; top: .6rem; right: .6rem; width: 34px; height: 34px;
+      background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: 1rem;
+    }
+    .about-close:hover { color: var(--orange); }
+    .about-logo { width: 76px; height: 76px; filter: drop-shadow(0 0 8px rgba(255,122,24,.5)); }
+    .about-title { font-family: ui-monospace, monospace; font-weight: 800; letter-spacing: .16em;
+                   font-size: 1.25rem; margin-top: .6rem; }
+    .about-title b { color: var(--orange); }
+    .about-sub { color: var(--muted); font-size: .85rem; margin-top: .2rem; }
+    .about-powered { margin: .9rem 0 1.1rem; font-family: ui-monospace, monospace;
+                     font-size: .8rem; letter-spacing: .08em; color: var(--muted); }
+    .about-powered a { color: var(--orange); text-decoration: none; font-weight: 700; }
+    .about-powered a:hover { text-decoration: underline; }
+    .about-credit { font-size: .8rem; color: var(--muted); margin: -.6rem 0 1.1rem; line-height: 1.5; }
+    .about-credit a { color: var(--orange); text-decoration: none; font-weight: 700; }
+    .about-credit a:hover { text-decoration: underline; }
+    .about-disc { text-align: left; font-size: .8rem; line-height: 1.5; color: #9aa1ad;
+                  border-top: 1px dashed var(--line); padding-top: .9rem; }
+    .about-disc p { margin: 0 0 .6rem; }
+    .about-disc b { color: #c9cfda; }
+    .logo {
+      font-family: "Segoe UI", monospace; font-weight: 800; letter-spacing: .14em;
+      text-transform: uppercase; font-size: 1.02rem; color: var(--text);
+    }
+    .logo b { color: var(--orange); }
+    .tag {
+      font-family: ui-monospace, monospace; font-size: .7rem; letter-spacing: .12em;
+      text-transform: uppercase; color: var(--muted);
+      border: 1px solid var(--line); padding: .15rem .5rem; border-radius: 2px;
+      white-space: nowrap; flex: 0 0 auto;   /* never wrap the status/GPU chips per-word */
+    }
+    #status { display: flex; align-items: center; gap: .4rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--orange);
+           box-shadow: 0 0 8px var(--orange); animation: pulse 1.6s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+    /* Clipboard-watch status chip: unmistakable ON/OFF indicator in the header. */
+    #watch-status { display: flex; align-items: center; gap: .45rem; cursor: pointer;
+      -webkit-app-region: no-drag; transition: background .15s, border-color .15s, color .15s; }
+    #watch-status .wdot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+    #watch-status.on { color: #46c95a; border-color: #2e7d3a; background: rgba(57,181,74,.12); }
+    #watch-status.on .wdot { background: #46c95a; box-shadow: 0 0 8px #46c95a; animation: pulse 1.4s infinite; }
+    #watch-status.off { color: #e06a5c; border-color: #7a2d26; background: rgba(192,57,43,.12); }
+    #watch-status.off .wdot { background: #e06a5c; box-shadow: none; animation: none; }
+    #watch-status:hover { filter: brightness(1.18); }
+
+    /* Content area: home/local/dscan/history are inline VIEWS (no popups) — exactly one
+       .show at a time fills the space between header and toolbar. */
+    #content { flex: 1; min-height: 0; min-width: 0; position: relative; display: flex; }
+    #chat { flex: 1; min-height: 0; min-width: 0; overflow-y: auto; overflow-x: hidden; padding: 1.2rem; flex-direction: column; gap: 1rem; display: none; }
+    #chat.show { display: flex; }
+    #chat::-webkit-scrollbar { width: 10px; }
+    #chat::-webkit-scrollbar-thumb { background: #2a2f38; border-radius: 0; }
+    /* Home panel (no chat in the Intel build) */
+    .home { margin: auto; width: 100%; max-width: 760px; display: flex; flex-direction: column; gap: 1.4rem; padding: 1rem 0; }
+    .home-hero { text-align: center; }
+    .home-hero h1 { margin: 0 0 .6rem; font-size: 1.7rem; letter-spacing: .04em; color: var(--text); }
+    .home-hero h1 b { color: var(--orange); }
+    .home-hero p { margin: 0 auto; max-width: 620px; color: var(--muted); line-height: 1.5; font-size: .92rem; }
+    .home-grid { display: grid; gap: .8rem; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+    .home-card { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--orange); border-radius: 4px; padding: .9rem 1rem; }
+    .home-card h3 { margin: 0 0 .4rem; font-size: .82rem; letter-spacing: .06em; text-transform: uppercase; color: var(--orange); }
+    .home-card p { margin: 0; color: #c4c7c5; line-height: 1.45; font-size: .82rem; }
+    .home-tip { text-align: center; color: var(--muted); font-size: .8rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+    .msg { max-width: 82%; padding: .8rem 1rem; line-height: 1.5; white-space: pre-wrap;
+           font-size: .95rem; position: relative; }
+    .user {
+      align-self: flex-end; background: var(--user);
+      border-right: 3px solid var(--user-line);
+      clip-path: polygon(10px 0, 100% 0, 100% 100%, 0 100%);
+    }
+    .bot {
+      align-self: flex-start; background: var(--panel);
+      border-left: 3px solid var(--orange-dim); border-top: 1px solid var(--line);
+      clip-path: polygon(0 0, 100% 0, 100% 100%, 10px 100%);
+    }
+    .bot::before {
+      content: "▸ CAPSULEER.IA"; display: block;
+      font-family: ui-monospace, monospace; font-size: .62rem; letter-spacing: .18em;
+      color: var(--orange); margin-bottom: .45rem; opacity: .8;
+    }
+    /* Rendered Markdown */
+    .bot .md p { margin: 0 0 .6rem; }
+    .bot .md p:last-child { margin-bottom: 0; }
+    .bot .md strong { color: #ffb066; font-weight: 700; }
+    .bot .md em { color: #e6c9a8; font-style: italic; }
+    .bot .md h4 { margin: .6rem 0 .35rem; color: var(--orange); font-size: .95rem; letter-spacing: .02em; }
+    .bot .md ul, .bot .md ol { margin: .2rem 0 .6rem; padding-left: 1.3rem; }
+    .bot .md li { margin: .15rem 0; }
+    .bot .md code { font-family: ui-monospace, monospace; background: #0a0b0d;
+                    border: 1px solid var(--line); padding: 0 .3rem; border-radius: 2px; color: #ffc28a; }
+    /* Fit block: a copy-able EFT fitting, rendered from a ``` fence as a blockquote. */
+    .bot .md blockquote.fit { position: relative; margin: .4rem 0 .7rem; padding: .7rem .9rem .8rem;
+                    background: #0a0b0d; border: 1px solid var(--line); border-left: 3px solid var(--orange);
+                    border-radius: 2px; }
+    .bot .md blockquote.fit pre { margin: 0; max-width: 100%; overflow-x: auto; white-space: pre;
+                    font-family: ui-monospace, monospace; font-size: .82rem; line-height: 1.45; color: #d7dade; }
+    .bot .md blockquote.fit pre::-webkit-scrollbar { height: 8px; }
+    .bot .md blockquote.fit pre::-webkit-scrollbar-thumb { background: #2a2f38; }
+    .fit-copy { position: absolute; top: .5rem; right: .5rem; -webkit-app-region: no-drag;
+                    display: inline-flex; align-items: center; gap: .3rem; cursor: pointer;
+                    background: #16191f; color: var(--muted); border: 1px solid var(--line);
+                    border-radius: 3px; padding: .2rem .45rem; font-size: .7rem; line-height: 1;
+                    font-family: ui-monospace, monospace; }
+    .fit-copy:hover { color: var(--orange); border-color: var(--orange-dim); }
+    .fit-copy.done { color: #6ee7a8; border-color: #2f6f4f; }
+    .fit-copy svg { flex: 0 0 auto; }
+    .bot .md a { color: var(--orange); text-decoration: none; border-bottom: 1px dotted var(--orange-dim); }
+    .bot .md a:hover { border-bottom-style: solid; }
+
+    /* Kill card */
+    .kills { margin-top: .8rem; display: flex; flex-direction: column; gap: 5px; }
+    /* Generic data cards (battles etc.) — a responsive grid, drawn client-side. */
+    .msg.bot.with-cards { max-width: 100%; }
+    .cardgrid { margin-top: .7rem; display: grid; gap: .6rem; grid-template-columns: repeat(auto-fill, minmax(228px, 1fr)); width: 100%; }
+    .gcard { display: block; text-decoration: none; color: var(--text); background: #0e1014;
+             border: 1px solid var(--line); border-left: 3px solid var(--orange); border-radius: 3px; padding: .6rem .7rem; }
+    a.gcard:hover { border-color: var(--orange-dim); background: #12151b; }
+    .gc-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+    .gc-title { font-family: ui-monospace, monospace; font-weight: 700; color: var(--orange); }
+    .gc-badge { font-size: .6rem; text-transform: uppercase; letter-spacing: .04em; color: #1a0d02;
+                background: var(--orange); border-radius: 2px; padding: .08rem .32rem; white-space: nowrap; }
+    .gc-sub { font-size: .76rem; color: #c4c7c5; margin: .1rem 0 .5rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .gc-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: .4rem .2rem; }
+    .gc-s { display: flex; flex-direction: column; line-height: 1.15; }
+    .gc-v { font-family: ui-monospace, monospace; font-weight: 700; font-size: .84rem; color: #e6e9ee; }
+    .gc-l { font-size: .58rem; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); }
+    .gc-ally { display: flex; align-items: center; gap: .35rem; margin-top: .55rem; font-size: .75rem; color: #c4c7c5;
+               white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .gc-ally img { width: 18px; height: 18px; border-radius: 2px; background: #0a0b0d; flex: 0 0 auto; }
+    .gc-ally i { color: var(--muted); font-style: normal; font-family: ui-monospace, monospace; font-size: .7rem; }
+    .gc-win { display: block; margin-top: .4rem; font-family: ui-monospace, monospace; font-size: .68rem; color: var(--muted); }
+    /* Single-panel cards (entity profile / efficiency stats / rankings). */
+    .cardpanel { margin-top: .7rem; width: 100%; }
+    .panel { background: #0e1014; border: 1px solid var(--line); border-left: 3px solid var(--orange); border-radius: 3px; padding: .8rem .9rem; }
+    .ent-head { display: flex; align-items: center; gap: .7rem; text-decoration: none; color: var(--text); margin-bottom: .7rem; }
+    a.ent-head:hover .eh-name { color: var(--orange); }
+    .eh-img { width: 48px; height: 48px; border-radius: 3px; background: #0a0b0d; flex: 0 0 auto; }
+    .eh-name { font-weight: 700; font-size: 1rem; color: #e6e9ee; }
+    .eh-tk { font-family: ui-monospace, monospace; font-size: .78rem; color: var(--muted); font-weight: 600; }
+    .eh-sub { font-size: .76rem; color: var(--muted); }
+    .gc-stats.wide { grid-template-columns: repeat(4, 1fr); gap: .55rem .3rem; }
+    .ship-strip { margin-top: .7rem; }
+    .ss-title { font-size: .6rem; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); margin-bottom: .35rem; }
+    .ss-row { display: flex; flex-wrap: wrap; gap: .4rem; }
+    .ss-item { display: flex; align-items: center; gap: .35rem; text-decoration: none; color: #c4c7c5;
+               background: #0a0b0d; border: 1px solid var(--line); border-radius: 3px; padding: .2rem .45rem .2rem .25rem; font-size: .74rem; }
+    .ss-item:hover { border-color: var(--orange-dim); color: var(--text); }
+    .ss-item img { width: 26px; height: 26px; border-radius: 2px; flex: 0 0 auto; }
+    .ss-item i { font-style: normal; font-family: ui-monospace, monospace; font-size: .68rem; color: var(--orange); }
+    .rank-title { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--orange); margin-bottom: .5rem; }
+    .ranklist { display: flex; flex-direction: column; gap: 3px; }
+    .rrow { display: grid; grid-template-columns: 1.4rem 26px 1fr auto auto; align-items: center; gap: .5rem;
+            background: #0a0b0d; border: 1px solid var(--line); border-radius: 2px; padding: .3rem .5rem; }
+    .rrow:has(:not(img)) { }
+    .rr-n { font-family: ui-monospace, monospace; color: var(--muted); font-size: .74rem; text-align: right; }
+    .rrow img { width: 26px; height: 26px; border-radius: 2px; background: #0a0b0d; }
+    .rrow > .rr-name { grid-column: 3; }
+    .rr-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .rr-kl { font-size: .7rem; color: #c4c7c5; white-space: nowrap; }
+    .rr-isk { font-family: ui-monospace, monospace; font-size: .74rem; color: var(--orange); white-space: nowrap; }
+    /* Pilot card: badges, playstyle distribution bar, wingmate chips. */
+    .pbadges { display: flex; flex-wrap: wrap; gap: .35rem; margin-bottom: .6rem; }
+    .pbadge { font-size: .64rem; text-transform: uppercase; letter-spacing: .03em; color: #c4c7c5;
+              background: #0a0b0d; border: 1px solid var(--line); border-radius: 3px; padding: .12rem .4rem; }
+    .pbadge.fc { color: #1a0d02; background: var(--orange); border-color: var(--orange); font-weight: 700; }
+    .ps-wrap { margin-top: .7rem; }
+    .ps-wrap .pbar { display: flex; height: 8px; border-radius: 3px; overflow: hidden; background: #1a1d22; }
+    .ps-wrap .pbar i { display: block; height: 100%; }
+    .ps-legend { display: flex; flex-wrap: wrap; gap: .1rem .7rem; margin-top: .35rem; font-size: .66rem; color: var(--muted); }
+    .ps-legend span { display: inline-flex; align-items: center; gap: .25rem; }
+    .ps-legend b { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+    .ps-avg { margin-top: .25rem; font-size: .66rem; color: var(--muted); font-family: ui-monospace, monospace; }
+    .wm-wrap { margin-top: .7rem; }
+    .wm-row { display: flex; flex-wrap: wrap; gap: .4rem; }
+    .wm-chip { display: flex; align-items: center; gap: .35rem; text-decoration: none; color: #c4c7c5;
+               background: #0a0b0d; border: 1px solid var(--line); border-radius: 14px; padding: .15rem .5rem .15rem .15rem; font-size: .74rem; }
+    .wm-chip:hover { border-color: var(--orange-dim); color: var(--text); }
+    .wm-chip img { width: 24px; height: 24px; border-radius: 50%; flex: 0 0 auto; background: #0a0b0d; }
+    .wm-chip i { font-style: normal; font-family: ui-monospace, monospace; font-size: .66rem; color: var(--orange); }
+    /* Character portrait list (wingmates / prey / hunters). */
+    .elist { display: flex; flex-direction: column; gap: 3px; }
+    .erow { display: grid; grid-template-columns: 30px 1fr auto auto; align-items: center; gap: .55rem;
+            text-decoration: none; color: var(--text); background: #0a0b0d; border: 1px solid var(--line);
+            border-radius: 2px; padding: .3rem .55rem; }
+    .erow:hover { border-color: var(--orange-dim); }
+    .erow img { width: 30px; height: 30px; border-radius: 50%; background: #0a0b0d; }
+    .er-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .er-sub { font-size: .72rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40ch; }
+    .er-m { font-family: ui-monospace, monospace; font-size: .76rem; color: var(--orange); white-space: nowrap; }
+    .erow .sec { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; padding: .08rem .15rem;
+                 font-family: ui-monospace, monospace; font-size: .68rem; font-weight: 700; border: 1px solid; border-radius: 3px; background: #0e1014; }
+    /* Versus recap (war_report). */
+    .vs-head { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: .6rem; margin-bottom: .7rem; }
+    .vs-side { display: flex; align-items: center; gap: .5rem; text-decoration: none; color: var(--text); min-width: 0; }
+    .vs-head .vs-side:last-child { flex-direction: row-reverse; text-align: right; }
+    .vs-side img { width: 44px; height: 44px; border-radius: 3px; background: #0a0b0d; flex: 0 0 auto; }
+    .vs-name { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .vs-side.win .vs-name { color: var(--orange); }
+    .vs-mid { font-family: ui-monospace, monospace; font-weight: 700; color: var(--muted); font-size: .8rem; }
+    .vs-score { display: grid; grid-template-columns: 1fr auto 1fr; gap: .3rem .6rem; align-items: center; }
+    .vs-a, .vs-b { font-family: ui-monospace, monospace; font-weight: 700; font-size: .92rem; color: #e6e9ee; }
+    .vs-b { text-align: right; }
+    .vs-l { font-size: .6rem; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); text-align: center; }
+    .vs-bar { display: flex; height: 8px; border-radius: 3px; overflow: hidden; background: #1a1d22; margin-top: .7rem; }
+    .vs-bar i { display: block; height: 100%; }
+    .vs-barlbl { display: flex; justify-content: space-between; margin-top: .25rem; font-size: .66rem; color: var(--muted); font-family: ui-monospace, monospace; }
+    .vs-sys { margin-top: .7rem; }
+    .syschip { display: inline-flex; align-items: center; gap: .3rem; background: #0a0b0d; border: 1px solid var(--line); border-radius: 3px;
+               padding: .12rem .4rem; margin: 0 .3rem .3rem 0; font-size: .72rem; color: #c4c7c5; }
+    .syschip i { font-style: normal; font-family: ui-monospace, monospace; font-size: .66rem; color: var(--orange); }
+    /* Battle report (per-team recap). */
+    .bt-title { display: block; text-decoration: none; }
+    a.bt-title:hover { color: #ffb066; }
+    .bt-teams { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: .6rem; }
+    .bt-team { background: #0a0b0d; border: 1px solid var(--line); border-radius: 3px; padding: .55rem .65rem; }
+    .bt-team.win { border-left: 3px solid #34d399; }
+    .bt-team.lose { border-left: 3px solid #fb7185; }
+    .bt-h { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .5rem; }
+    .bt-badge { font-size: .62rem; text-transform: uppercase; letter-spacing: .03em; font-weight: 700; padding: .08rem .35rem; border-radius: 2px; }
+    .bt-team.win .bt-badge { background: #34d399; color: #04150d; }
+    .bt-team.lose .bt-badge { background: #fb7185; color: #2a0810; }
+    .bt-stat { font-family: ui-monospace, monospace; font-size: .72rem; color: var(--muted); }
+    .bt-members { display: flex; flex-direction: column; gap: 3px; }
+    .bt-m { display: flex; align-items: center; gap: .4rem; text-decoration: none; color: #c4c7c5; font-size: .76rem; }
+    .bt-m:hover { color: var(--text); }
+    .bt-m img { width: 24px; height: 24px; border-radius: 2px; background: #0a0b0d; flex: 0 0 auto; }
+    .bt-m i { font-style: normal; font-family: ui-monospace, monospace; font-size: .66rem; color: var(--muted); }
+    /* EVE Workbench fit list. */
+    .fitrow { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto auto auto; align-items: center; gap: .55rem;
+              text-decoration: none; color: var(--text); background: #0a0b0d; border: 1px solid var(--line); border-radius: 2px; padding: .35rem .55rem; }
+    .fitrow:hover { border-color: var(--orange-dim); }
+    .fitrow img { width: 32px; height: 32px; border-radius: 2px; background: #0a0b0d; }
+    .fit-main { min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }
+    .fit-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fit-sub { font-size: .72rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fit-tags { display: flex; gap: .25rem; flex-wrap: nowrap; overflow: hidden; }
+    .fittag { font-size: .6rem; text-transform: uppercase; letter-spacing: .02em; color: #c4c7c5; background: #16191f;
+              border: 1px solid var(--line); border-radius: 2px; padding: .05rem .3rem; white-space: nowrap; }
+    .fittag.alpha { color: #1a0d02; background: #eab308; border-color: #eab308; font-weight: 700; }
+    .fitrow .fit-n { font-family: ui-monospace, monospace; font-weight: 700; color: var(--orange); font-size: .8rem; }
+    .fitrow { grid-template-columns: auto 32px minmax(0, 1fr) auto auto auto; }
+    .fit-hint { margin-top: .55rem; font-size: .72rem; color: var(--muted); }
+    /* Visual fit-stats panel. */
+    .dmg-row { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .7rem; }
+    .dmg-box { flex: 1 1 180px; background: #0a0b0d; border: 1px solid var(--line); border-left: 3px solid var(--orange); border-radius: 3px; padding: .5rem .65rem; }
+    .dmg-h { font-size: .64rem; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); }
+    .dmg-h span { color: #c4c7c5; }
+    .dmg-dps { font-family: ui-monospace, monospace; font-weight: 700; font-size: 1.5rem; color: #ffb066; line-height: 1.1; }
+    .dmg-dps small { font-size: .6rem; color: var(--muted); font-weight: 400; }
+    .dmg-sub { font-size: .72rem; color: #c4c7c5; font-family: ui-monospace, monospace; }
+    .res-tbl { margin-top: .7rem; display: grid; gap: 2px; }
+    .res-row { display: grid; grid-template-columns: 5rem repeat(4, 1fr); gap: .3rem; align-items: center; font-family: ui-monospace, monospace; font-size: .74rem; }
+    .res-row span { text-align: right; }
+    .res-row .res-l { text-align: left; color: var(--muted); font-family: inherit; }
+    .res-head { color: var(--muted); font-size: .62rem; text-transform: uppercase; }
+    .kill {
+      display: grid; align-items: center; gap: .5rem; text-decoration: none; color: var(--text);
+      grid-template-columns: 30px minmax(90px, 1fr) 26px minmax(80px, 1fr) auto auto auto;
+      padding: 5px 9px; background: #0f1318; border-left: 3px solid var(--orange-dim); font-size: .82rem;
+    }
+    .kill.loss { border-left-color: #c0392b; }
+    .kill:hover { background: #171c23; }
+    .kill img { width: 28px; height: 28px; border-radius: 2px; background: #0a0b0d; }
+    .kill img.victim { width: 24px; height: 24px; border-radius: 50%; }
+    .kill .nm { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .kill .nm.dim { color: var(--muted); font-weight: 400; }
+    .kill .sys { color: #9aa1ad; font-family: ui-monospace, monospace; }
+    .kill .val { color: var(--orange); white-space: nowrap; }
+    .kill .tm { color: var(--muted); font-family: ui-monospace, monospace; font-size: .72rem; white-space: nowrap; }
+    .sources {
+      margin-top: .7rem; padding-top: .5rem; border-top: 1px dashed var(--line);
+      font-family: ui-monospace, monospace; font-size: .72rem; color: var(--muted);
+    }
+    .sources b { color: var(--orange-dim); letter-spacing: .1em; }
+    .sources a { color: var(--orange); text-decoration: none; }
+    .sources a:hover { text-decoration: underline; }
+
+    /* Local Intel panel */
+    #local { flex: 1; min-height: 0; min-width: 0; display: none; }
+    #local.show { display: flex; }
+    .local-panel { position: relative; flex: 1; min-height: 0; width: auto; margin: .7rem 1rem 1rem;
+      display: flex; flex-direction: column;
+      background: linear-gradient(180deg, #14171c, #0e1014);
+      border: 1px solid var(--orange); border-top: 3px solid var(--orange);
+      box-shadow: 0 0 40px rgba(255,122,24,.18);
+      clip-path: polygon(0 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%); }
+    .local-head { display: flex; align-items: center; gap: .7rem; padding: 1rem 1.2rem .6rem; }
+    .local-head h2 { margin: 0; font-family: ui-monospace, monospace; letter-spacing: .12em;
+      font-size: 1rem; color: var(--text); text-transform: uppercase; }
+    .local-head h2 b { color: var(--orange); }
+    .local-sub { color: var(--muted); font-size: .78rem; }
+    .local-close { position: absolute; top: .6rem; right: .6rem; width: 34px; height: 34px;
+      background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: 1.3rem; line-height: 1; }
+    .local-close:hover { color: var(--orange); }
+    .local-body { flex: 1; min-height: 0; overflow-y: auto; padding: .4rem 1.2rem 1.2rem; }
+    .local-body::-webkit-scrollbar { width: 10px; }
+    .local-body::-webkit-scrollbar-thumb { background: #2a2f38; }
+    .lrow { display: grid; align-items: center; gap: .55rem;
+      grid-template-columns: 10px auto 26px minmax(110px,1fr) auto auto;
+      padding: 5px 8px; border-left: 3px solid #2a2f38; background: #0f1318;
+      margin-bottom: 4px; font-size: .84rem; text-decoration: none; color: var(--text); }
+    .lrow:hover { background: #171c23; }
+    .lrow.d3 { border-left-color: #c0392b; background: #1a0f10; }
+    .lrow.d2 { border-left-color: #f0a020; }
+    .lrow.d1 { border-left-color: #39b54a; }
+    .lrow.d0 { border-left-color: #3a7bd5; }
+    .lrow .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .lrow.d3 .dot { background: #c0392b; box-shadow: 0 0 6px #c0392b; }
+    .lrow.d2 .dot { background: #f0a020; }
+    .lrow.d1 .dot { background: #39b54a; }
+    .lrow.d0 .dot { background: #3a7bd5; }
+    /* Corp/alliance logos (square) + char portrait (round) */
+    .lrow .logos { display: flex; gap: 2px; }
+    .lrow .logos img { width: 16px; height: 16px; border-radius: 2px; background: #0a0b0d; }
+    .lrow .logos .ph { width: 16px; height: 16px; }
+    .lrow .portrait { width: 24px; height: 24px; border-radius: 50%; background: #0a0b0d; }
+    /* Name cell: alliance/corp ticker before the name */
+    .lname { display: flex; align-items: center; gap: .4rem; min-width: 0; }
+    .lname .tk { font-family: ui-monospace, monospace; font-size: .68rem; white-space: nowrap; }
+    .lname .tk.alli { color: #7fb0ff; }
+    .lname .tk.corp { color: #9aa1ad; }
+    .lrow .lnm { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .lrow .lnm.miss { color: var(--muted); font-weight: 400; font-style: italic; }
+    .lrow .lkd { color: #9aa1ad; font-family: ui-monospace, monospace; font-size: .76rem; white-space: nowrap; }
+    .lrow .lflags { display: flex; gap: 3px; flex-wrap: wrap; justify-content: flex-end; }
+    .lflag { font-size: .66rem; padding: 1px 5px; border-radius: 2px; background: #1a1f27;
+      border: 1px solid #2a2f37; color: #c9cfda; white-space: nowrap; }
+    .lflag.hot { border-color: #c0392b; color: #ff9a8a; }
+    .local-prog { font-family: ui-monospace, monospace; font-size: .76rem; color: var(--muted);
+      padding: .2rem 0 .6rem; }
+    .local-bar { height: 3px; background: #1a1d22; border-radius: 2px; overflow: hidden; margin-top: 4px; }
+    .local-bar > i { display: block; height: 100%; width: 0; background: var(--orange); transition: width .2s; }
+
+    /* Share + history controls in the local panel */
+    .local-action { margin-left: auto; display: inline-flex; align-items: center; gap: .35rem;
+      font-family: ui-monospace, monospace; font-size: .72rem; letter-spacing: .06em; text-transform: uppercase;
+      padding: 4px 9px; cursor: pointer; color: #0b0c0e; background: var(--orange); border: 0;
+      clip-path: polygon(0 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%); }
+    .local-action:hover { filter: brightness(1.1); }
+    .local-action:disabled { opacity: .55; cursor: default; }
+    .local-action.ghost { margin-left: 0; color: var(--orange); background: transparent; border: 1px solid var(--orange); }
+    .local-action.ghost:hover { background: rgba(255,122,24,.12); filter: none; }
+    .local-action svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; }
+    /* generated-link banner */
+    .local-share-out { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+      margin: 0 1.2rem .4rem; padding: .5rem .7rem; font-size: .76rem;
+      background: #0f1a12; border-left: 3px solid #39b54a; color: #cfe9d3; }
+    .local-share-out.err { background: #1a0f10; border-left-color: #c0392b; color: #ffb3a8; }
+    .local-share-out .msg { font-weight: 600; }
+    .local-share-out a { color: #7fd692; text-decoration: none; font-family: ui-monospace, monospace;
+      max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .local-share-out a:hover { text-decoration: underline; }
+    .local-share-out .exp { color: var(--muted); font-family: ui-monospace, monospace; }
+    /* [hidden] MUST win over the display:flex/inline-flex above — otherwise the share
+       row and its share/copy buttons render before the user ever clicks Share. */
+    #local-share[hidden], #dscan-share[hidden],
+    #local-share-out[hidden], #dscan-share-out[hidden],
+    #local-share-copy[hidden], #dscan-share-copy[hidden] { display: none !important; }
+    /* "Processing the link" placeholder state (orange, pulsing) while we wait for the server. */
+    .local-share-out.pending { background: #1a160f; border-left-color: var(--orange); color: #ecdcc4; }
+    .local-share-out.pending .msg::after { content: ""; display: inline-block; width: 8px; height: 8px;
+      margin-left: .35rem; border-radius: 50%; background: var(--orange); box-shadow: 0 0 8px var(--orange);
+      animation: pulse 1.2s infinite; vertical-align: middle; }
+    /* history list */
+    .local-history { margin: 0 1.2rem .6rem; border: 1px solid #232830; background: #0c0f13; }
+    .local-history .lh-head { display: flex; align-items: center; gap: .5rem; padding: .45rem .7rem;
+      font-family: ui-monospace, monospace; font-size: .72rem; letter-spacing: .08em; text-transform: uppercase;
+      color: var(--muted); border-bottom: 1px solid #232830; }
+    .local-history .lh-clear { margin-left: auto; background: transparent; border: 0; cursor: pointer;
+      color: var(--muted); font-size: .7rem; }
+    .local-history .lh-clear:hover { color: var(--orange); }
+    .local-history .lh-list { max-height: 150px; overflow-y: auto; }
+    .local-history .lh-empty { padding: .6rem .7rem; color: var(--muted); font-size: .76rem; font-style: italic; }
+    .lh-row { display: flex; align-items: center; gap: .55rem; padding: .4rem .7rem; font-size: .76rem;
+      border-bottom: 1px solid #15191f; }
+    .lh-row:last-child { border-bottom: 0; }
+    .lh-row .lh-when { color: var(--text); font-family: ui-monospace, monospace; }
+    .lh-row .lh-cnt { color: var(--muted); }
+    .lh-row .lh-exp { margin-left: auto; color: #7fd692; font-family: ui-monospace, monospace; white-space: nowrap; }
+    .lh-row .lh-exp.soon { color: #f0a020; }
+    .lh-row .lh-copy, .lh-row .lh-open { background: transparent; border: 1px solid #2a2f37; color: #c9cfda; cursor: pointer;
+      font-size: .68rem; padding: 1px 6px; border-radius: 2px; }
+    .lh-row .lh-copy:hover, .lh-row .lh-open:hover { border-color: var(--orange); color: var(--orange); }
+    .lh-kind { font-size: .58rem; font-family: ui-monospace, monospace; letter-spacing: .06em;
+      text-transform: uppercase; padding: 1px 5px; border-radius: 2px; border: 1px solid; flex: 0 0 auto; }
+    .lh-kind.intel { color: var(--orange); border-color: rgba(255,122,24,.5); }
+    .lh-kind.dscan { color: #7fd0ff; border-color: rgba(127,208,255,.45); }
+    /* Shared-link history modal (opened from the header) */
+    #history-modal { flex: 1; min-height: 0; min-width: 0; display: none; }
+    #history-modal.show { display: flex; }
+    .hist-modal-panel { width: auto; }
+    .hist-modal-panel .local-history { flex: 1; min-height: 0; overflow-y: auto; margin: 0 1.2rem 1.2rem; }
+    .hist-modal-panel .lh-list { max-height: none; }
+
+    /* D-Scan analysis modal */
+    #dscan { flex: 1; min-height: 0; min-width: 0; display: none; }
+    #dscan.show { display: flex; }
+    .dscan-panel { width: auto; }
+    #dscan-sub { font-family: ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
+    #dscan-share { margin-right: 1.8rem; }   /* clear the absolute close button */
+    #dscan-share-out { margin-left: 1.2rem; margin-right: 1.2rem; }
+    .ds-system { display: flex; align-items: center; gap: .6rem; margin: 0 0 1.1rem;
+      font-family: ui-monospace, monospace; }
+    .ds-system .lbl { font-size: .72rem; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+    .ds-system .val { font-size: .95rem; font-weight: 800; letter-spacing: .1em; color: var(--orange);
+      border: 1px solid var(--orange); padding: .15rem .65rem;
+      clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px); }
+    .ds-block { margin: 0 0 1.1rem; }
+    .ds-block-h { display: flex; align-items: center; gap: .5rem; margin-bottom: .55rem;
+      font-family: ui-monospace, monospace; font-size: .76rem; letter-spacing: .14em;
+      text-transform: uppercase; color: var(--orange); }
+    .ds-block-h .ds-badge { margin-left: auto; color: var(--muted); letter-spacing: .06em; }
+    /* ship-class stat cards */
+    .ds-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: .5rem; }
+    .ds-card { background: #0f1318; border: 1px solid var(--line); border-top: 2px solid var(--orange);
+      padding: .75rem .4rem; text-align: center;
+      clip-path: polygon(0 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%); }
+    .ds-card.cap { border-top-color: #c0392b; }
+    .ds-card-n { font-family: ui-monospace, monospace; font-size: 1.55rem; font-weight: 800;
+      color: var(--orange); line-height: 1; }
+    .ds-card.cap .ds-card-n { color: #ff7a6a; }
+    .ds-card-l { font-size: .62rem; letter-spacing: .08em; text-transform: uppercase;
+      color: #aeb4bf; margin-top: .4rem; }
+    /* individual ships (icon grid) + other-entity rows: 2-column layout */
+    .ds-grid2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 4px; }
+    .ds-srow { display: flex; align-items: center; gap: .55rem; background: #0f1318; padding: 4px 9px; font-size: .82rem; }
+    .ds-srow .ds-ico { width: 26px; height: 26px; border-radius: 2px; background: #0a0b0d; flex: 0 0 auto; }
+    .ds-srow .nm { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ds-srow .cnt { margin-left: auto; font-family: ui-monospace, monospace; color: var(--orange); font-weight: 700; }
+    .ds-orow { display: flex; align-items: center; background: #0f1318; padding: 7px 11px; }
+    .ds-orow .nm { color: #c9cfda; font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; }
+    .ds-orow .cnt { margin-left: auto; font-family: ui-monospace, monospace; color: var(--orange); font-weight: 700; }
+    .ds-empty { color: var(--muted); font-style: italic; font-size: .8rem; padding: 1rem 0; }
+
+    /* Pilot detail popup */
+    /* Pilot detail = right-side slide-in drawer over the active view (roster stays behind). */
+    #pilot { position: absolute; inset: 0; z-index: 40; visibility: hidden;
+      background: rgba(5,6,8,0); transition: background .22s ease, visibility 0s linear .22s; }
+    #pilot.open { visibility: visible; background: rgba(5,6,8,.45); transition: background .22s ease; }
+    .pilot-card { position: absolute; top: 0; right: 0; height: 100%; width: min(460px, 92vw);
+      margin: 0; overflow-y: auto; text-align: center; padding: 1.4rem 1.4rem 1.2rem;
+      background: linear-gradient(180deg, #14171c, #0d0f12);
+      border-left: 3px solid var(--orange); box-shadow: -12px 0 40px rgba(0,0,0,.5);
+      transform: translateX(100%); transition: transform .22s ease; }
+    #pilot.open .pilot-card { transform: translateX(0); }
+    .pilot-card::-webkit-scrollbar { width: 8px; }
+    .pilot-card::-webkit-scrollbar-thumb { background: #2a2f38; }
+    .pilot-close { position: absolute; top: .5rem; right: .5rem; width: 32px; height: 32px;
+      background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: 1.3rem; line-height: 1; }
+    .pilot-close:hover { color: var(--orange); }
+    .pilot-portrait { width: 76px; height: 76px; border-radius: 50%; background: #0a0b0d;
+      border: 2px solid #2a2f38; }
+    .pilot-name { font-size: 1.15rem; font-weight: 700; margin-top: .5rem; }
+    .pilot-aff { color: var(--orange); font-size: .82rem; letter-spacing: .04em; margin-top: .15rem; }
+    .pilot-stats { display: flex; justify-content: center; gap: 2.2rem; margin: 1rem 0 .4rem; }
+    .pilot-stats .s { display: flex; flex-direction: column; }
+    .pilot-stats .s b { font-size: 1.05rem; }
+    .pilot-stats .s span { font-size: .64rem; letter-spacing: .14em; color: var(--muted); text-transform: uppercase; }
+    .pilot-stats .eff b { color: #39b54a; }
+    /* Playstyle bar solo/small/fleet */
+    .pbar-labels { display: flex; justify-content: space-between; font-family: ui-monospace, monospace;
+      font-size: .64rem; letter-spacing: .12em; margin: .6rem 0 .25rem; }
+    .pbar-labels .pl { padding: 2px 8px; border-radius: 2px; }
+    .pbar-labels .solo { color: #3a7bd5; } .pbar-labels .small { color: #39b54a; } .pbar-labels .fleet { color: #c0392b; }
+    .pbar-labels .on { color: #0a0b0d; font-weight: 700; }
+    .pbar-labels .solo.on { background: #3a7bd5; } .pbar-labels .small.on { background: #39b54a; } .pbar-labels .fleet.on { background: #c0392b; }
+    .pbar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: #1a1d22; }
+    .pbar i { display: block; height: 100%; }
+    .pbar .b-solo { background: #3a7bd5; } .pbar .b-small { background: #39b54a; } .pbar .b-fleet { background: #c0392b; }
+    .pilot-sect { text-align: left; margin-top: 1.1rem; }
+    .pilot-sect h4 { font-family: ui-monospace, monospace; font-size: .66rem; letter-spacing: .16em;
+      color: var(--muted); text-transform: uppercase; margin: 0 0 .5rem; border-bottom: 1px solid var(--line); padding-bottom: .3rem; }
+    .chips { display: flex; flex-wrap: wrap; gap: .4rem; }
+    .chip { display: flex; align-items: center; gap: .35rem; background: #11151a; border: 1px solid #23272f;
+      border-radius: 4px; padding: 3px 8px; font-size: .76rem; text-decoration: none; color: var(--text); }
+    .chip:hover { border-color: var(--orange); }
+    .chip[data-pilot] { cursor: pointer; }  /* only characters are clickable (drill-down) */
+    .chip img { width: 22px; height: 22px; border-radius: 50%; background: #0a0b0d; }
+    .chip img.sq { border-radius: 3px; }
+    .chip .c-ct { color: var(--muted); font-size: .7rem; }
+    .pilot-tags { display: flex; flex-wrap: wrap; gap: .35rem; justify-content: center; margin-top: .7rem; }
+    .pilot-tags .t { font-size: .68rem; padding: 2px 7px; border-radius: 3px; background: #1a1f27; border: 1px solid #2a2f37; }
+    .pilot-tags .t.hot { border-color: #c0392b; color: #ff9a8a; }
+    .pilot-link { display: inline-block; margin-top: 1rem; color: var(--orange); font-size: .78rem;
+      text-decoration: none; cursor: pointer; }
+    .pilot-link:hover { text-decoration: underline; }
+    .pilot-links { display: flex; gap: .6rem; margin-top: 1.1rem; }
+    .pilot-links .pilot-link {
+      flex: 1; margin-top: 0;
+      display: inline-flex; align-items: center; justify-content: center; gap: .45rem;
+      padding: .5rem .6rem;
+      background: rgba(255,255,255,.025); border: 1px solid var(--line); border-radius: 5px;
+      color: #aeb4bf; font-size: .74rem; font-weight: 600; letter-spacing: .04em;
+      text-decoration: none; transition: background .14s, border-color .14s, color .14s;
+    }
+    .pilot-links .pilot-link:hover { background: rgba(255,122,24,.1); border-color: var(--orange);
+                                     color: #fff; text-decoration: none; }
+    .pilot-links .pilot-link .ico { width: 15px; height: 15px; flex: 0 0 auto; stroke: currentColor; fill: none; }
+    .pilot-loading { color: var(--muted); font-size: .85rem; padding: 2rem 0; }
+
+    /* Input */
+    /* Action toolbar (Nuova / Local / Modello / Storico) above the input */
+    .toolbar {
+      display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+      padding: .55rem 1rem; background: #0c0e12; border-top: 1px solid var(--line);
+    }
+    footer {
+      position: relative;
+      display: flex; gap: .6rem; padding: .8rem 1rem;
+      background: #0e1014; border-top: 1px solid var(--line);
+    }
+    /* Slash-command menu (opens above the input when the draft is "/…"). */
+    #slash {
+      position: absolute; left: 1rem; right: 1rem; bottom: calc(100% - .4rem);
+      max-height: 46vh; overflow-y: auto; z-index: 40;
+      background: #0e1014; border: 1px solid var(--orange-dim); border-radius: 3px;
+      box-shadow: 0 -8px 28px rgba(0,0,0,.55); padding: .3rem;
+    }
+    #slash::-webkit-scrollbar { width: 9px; }
+    #slash::-webkit-scrollbar-thumb { background: #2a2f38; }
+    .scmd { display: grid; grid-template-columns: minmax(7.5rem, auto) 1fr; gap: .6rem; align-items: baseline;
+            padding: .4rem .55rem; border-radius: 2px; cursor: pointer; }
+    .scmd:hover, .scmd.sel { background: #1a1d22; }
+    .scmd .sc-cmd { font-family: ui-monospace, monospace; font-weight: 700; color: var(--orange); white-space: nowrap; }
+    .scmd.sel .sc-cmd { color: #ffb066; }
+    .scmd .sc-desc { font-size: .8rem; color: #c4c7c5; }
+    .scmd .sc-arg { color: var(--muted); font-style: italic; }
+    textarea {
+      flex: 1; resize: none; padding: .7rem .9rem; font: inherit;
+      background: #0a0b0d; color: var(--text);
+      border: 1px solid var(--line); border-radius: 2px; outline: none;
+    }
+    textarea:focus { border-color: var(--orange); box-shadow: 0 0 0 1px var(--orange-dim); }
+    button {
+      padding: 0 1.6rem; border: 1px solid var(--orange); border-radius: 2px;
+      background: linear-gradient(180deg, var(--orange), var(--orange-dim));
+      color: #1a0d02; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+      font-family: ui-monospace, monospace; font-size: .82rem; cursor: pointer;
+    }
+    button:disabled { background: #1a1d22; color: var(--muted); border-color: var(--line); cursor: default; }
+
+    /* AI model selection */
+    #models { position: fixed; inset: 0; z-index: 55; display: flex; align-items: center; justify-content: center;
+              background: rgba(5,6,8,.78); backdrop-filter: blur(3px); }
+    #models[hidden] { display: none; }
+    .models-panel {
+      position: relative; width: min(660px, 92vw); max-height: 86vh; overflow-y: auto;
+      padding: 1.5rem 1.5rem 1.3rem; background: linear-gradient(180deg, #14171c, #0e1014);
+      border: 1px solid var(--orange); border-top: 3px solid var(--orange);
+      box-shadow: 0 0 40px rgba(255,122,24,.18);
+      clip-path: polygon(0 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%);
+    }
+    .models-close { position: absolute; top: .6rem; right: .6rem; width: 34px; height: 34px;
+                    background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: 1rem; }
+    .models-close:hover { color: var(--orange); }
+    .models-head h2 { font-family: ui-monospace, monospace; letter-spacing: .14em; font-size: 1.05rem; margin: 0; }
+    .models-head h2 b { color: var(--orange); }
+    .models-vram { font-family: ui-monospace, monospace; font-size: .76rem; color: var(--muted); margin: .35rem 0 .2rem; }
+    .vram-bar { height: 7px; background: #0a0b0d; border: 1px solid var(--line); margin: .3rem 0 1rem; }
+    .vram-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--orange-dim), var(--orange)); }
+    .models-hint { font-size: .76rem; color: var(--muted); line-height: 1.45; margin: 0 0 1rem;
+                   border-left: 2px solid var(--orange-dim); padding-left: .7rem; }
+    .mrow {
+      display: grid; grid-template-columns: 1fr auto auto; gap: .2rem 1rem; align-items: center;
+      padding: .7rem .8rem; margin-bottom: .55rem; cursor: pointer;
+      background: #0e1014; border: 1px solid var(--line); border-left: 3px solid var(--line);
+    }
+    .mrow:hover { border-color: var(--orange-dim); border-left-color: var(--orange); background: #12151a; }
+    .mrow.current { border-left-color: var(--orange); background: #15110b; }
+    .mrow.busy { opacity: .5; pointer-events: none; }
+    .mrow .mname { font-weight: 700; font-size: .92rem; }
+    .mrow .mname b { color: var(--orange); }
+    .mrow .mmeta { grid-column: 1; font-family: ui-monospace, monospace; font-size: .74rem; color: var(--muted); }
+    .mrow .meta-warn { color: #d98a3a; }
+    .mrow .mest { grid-column: 2; grid-row: 1 / span 2; text-align: right; font-family: ui-monospace, monospace; }
+    .mdel { grid-column: 3; grid-row: 1 / span 2; align-self: center; background: none; border: 0; cursor: pointer;
+            color: var(--muted); font-size: 1rem; padding: .2rem .35rem; line-height: 1; }
+    .mdel:hover { color: #e06b6b; }
+    .mdel-actions { display: flex; gap: .5rem; align-items: center; }
+    /* In-app "Local detected" banner */
+    #local-banner { position: fixed; top: 50px; left: 50%; transform: translateX(-50%); z-index: 80;
+      display: flex; align-items: center; gap: .8rem; padding: .5rem .5rem .5rem .9rem;
+      background: linear-gradient(180deg, #1a130a, #120c06); border: 1px solid var(--orange);
+      box-shadow: 0 6px 24px rgba(0,0,0,.55); font-size: .85rem; color: var(--text); }
+    #local-banner[hidden] { display: none; }
+    #local-banner .lb-btn { font-family: ui-monospace, monospace; font-size: .76rem; padding: .3rem .7rem;
+      background: var(--orange); color: #1a0d02; border: 1px solid var(--orange); cursor: pointer; white-space: nowrap; }
+    #local-banner .lb-btn:hover { background: #ff8c33; }
+    #local-banner .lb-x { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: .85rem; padding: .2rem .3rem; }
+    #local-banner .lb-x:hover { color: var(--orange); }
+    .mrow .meta-eta { font-size: 1.02rem; font-weight: 700; color: var(--text); }
+    .mrow .meta-tps { font-size: .72rem; color: var(--muted); }
+    .badge { display: inline-block; font-family: ui-monospace, monospace; font-size: .66rem; letter-spacing: .08em;
+             text-transform: uppercase; padding: .12rem .4rem; border-radius: 2px; margin-left: .5rem; vertical-align: middle; }
+    .badge.veloce { background: #10300f; color: #6fd96b; border: 1px solid #2c6b29; }
+    .badge.accettabile { background: #33280a; color: #e0b352; border: 1px solid #6b5417; }
+    .badge.lento { background: #331010; color: #e06b6b; border: 1px solid #6b2424; }
+    .badge.now { background: var(--orange); color: #1a0d02; border: 1px solid var(--orange); }
+    .badge.reco { background: transparent; color: var(--orange); border: 1px solid var(--orange); }
+    /* Download of an extra model from the MODEL panel */
+    .dl-head { font-family: ui-monospace, monospace; font-size: .74rem; letter-spacing: .08em; text-transform: uppercase;
+               color: var(--muted); margin: 1.1rem 0 .5rem; padding-left: .7rem; border-left: 2px solid var(--orange-dim); }
+    .mrow.dlrow { display: block; cursor: default; }
+    .mrow.dlrow:hover { border-color: var(--line); border-left-color: var(--line); background: #0e1014; }
+    .mrow.dlrow .mname { margin-bottom: .15rem; }
+    .dl-btn { font-family: ui-monospace, monospace; font-size: .74rem; padding: .35rem .7rem; cursor: pointer;
+              background: var(--orange); color: #1a0d02; border: 1px solid var(--orange); white-space: nowrap; }
+    .dl-btn:hover { background: #ff8c33; }
+    .dl-btn[disabled], .dl-btn.busy { opacity: .5; cursor: default; pointer-events: none; }
+    .dl-prog { margin-top: .5rem; }
+    .dl-bar { height: 8px; background: #0a0b0d; border: 1px solid var(--line); }
+    .dl-bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--orange-dim), var(--orange)); transition: width .2s; }
+    .dl-row2 { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: .25rem; }
+    .dl-stat { font-family: ui-monospace, monospace; font-size: .72rem; color: var(--muted); }
+    .dl-cancel { font-family: ui-monospace, monospace; font-size: .72rem; color: var(--muted); background: none;
+                 border: 0; cursor: pointer; text-decoration: underline; }
+    .dl-cancel:hover { color: var(--orange); }
+
+    /* First-run setup (on-demand asset download) */
+    #setup { position: fixed; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center;
+             background: rgba(5,6,8,.92); backdrop-filter: blur(4px); }
+    #setup[hidden] { display: none; }
+    /* hidden deve vincere anche sugli elementi flex/grid interni (start button, ecc.) */
+    #setup [hidden] { display: none !important; }
+    /* Lista modelli bloccata durante il download: non interagibile e attenuata. */
+    #setup-models.locked { opacity: .5; pointer-events: none; filter: grayscale(.35); }
+    .setup-panel { position: relative; width: min(640px, 92vw); max-height: 88vh; overflow-y: auto;
+      padding: 1.6rem; background: linear-gradient(180deg, #14171c, #0e1014);
+      border: 1px solid var(--orange); border-top: 3px solid var(--orange);
+      box-shadow: 0 0 40px rgba(255,122,24,.18);
+      clip-path: polygon(0 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%); }
+    .setup-panel h2 { font-family: ui-monospace, monospace; letter-spacing: .14em; font-size: 1.1rem; margin: 0 0 .6rem; }
+    .setup-panel h2 b { color: var(--orange); }
+    .setup-intro { font-size: .82rem; color: var(--text); line-height: 1.5; margin: 0 0 1rem; }
+    .srow { display: grid; grid-template-columns: auto 1fr auto; gap: .15rem .8rem; align-items: center;
+      padding: .65rem .8rem; margin-bottom: .5rem; cursor: pointer;
+      background: #0e1014; border: 1px solid var(--line); border-left: 3px solid var(--line); }
+    .srow:hover { border-color: var(--orange-dim); border-left-color: var(--orange); background: #12151a; }
+    .srow.sel { border-left-color: var(--orange); background: #15110b; }
+    .srow input { accent-color: var(--orange); }
+    .srow .sname { font-weight: 700; font-size: .9rem; }
+    .srow .ssize { font-family: ui-monospace, monospace; font-size: .8rem; color: var(--text); text-align: right; white-space: nowrap; }
+    .srow .sinstalled { color: #6fd96b; }
+    .srow .sreco { grid-column: 2 / span 2; font-family: ui-monospace, monospace; font-size: .72rem; color: var(--muted); }
+    .setup-incl { font-family: ui-monospace, monospace; font-size: .74rem; color: var(--muted);
+      border-left: 2px solid var(--orange-dim); padding-left: .7rem; margin: .2rem 0 .2rem; }
+    .setup-total { font-family: ui-monospace, monospace; font-size: .92rem; margin: .9rem 0 .2rem; }
+    .setup-total b { color: var(--orange); }
+    .setup-resume { font-size: .72rem; color: var(--muted); margin-top: .5rem; }
+    .setup-actions { display: flex; gap: .7rem; margin-top: 1rem; }
+    .setup-btn { flex: 1; padding: .7rem 1rem; font-family: ui-monospace, monospace; font-size: .82rem; letter-spacing: .06em;
+      text-transform: uppercase; cursor: pointer; background: var(--orange); color: #1a0d02; border: 1px solid var(--orange); }
+    .setup-btn:hover { background: #ff8c33; }
+    .setup-btn[disabled] { opacity: .5; cursor: default; }
+    .setup-btn.ghost { background: transparent; color: var(--muted); border-color: var(--line); }
+    .setup-btn.ghost:hover { color: var(--orange); border-color: var(--orange-dim); }
+    .setup-prog { margin-top: 1rem; }
+    .setup-bar { height: 10px; background: #0a0b0d; border: 1px solid var(--line); margin: .4rem 0; }
+    .setup-bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--orange-dim), var(--orange)); transition: width .2s; }
+    .setup-stat { font-family: ui-monospace, monospace; font-size: .74rem; color: var(--muted); display: flex; justify-content: space-between; gap: 1rem; }
+    .setup-err { color: #e06b6b; font-size: .8rem; margin-top: .7rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="logo">CAPSULEERS<b>.INTEL</b></span>
+    <span class="tag">EVE ONLINE · INTEL</span>
+    <button id="watch-status" class="tag watch off" type="button">
+      <span class="wdot"></span><span id="watch-label"></span>
+    </button>
+    <span class="spacer"></span>
+    <div class="win-controls">
+      <button class="wc" id="wc-info" data-i18n-title="wcInfo">&#x24D8;</button>
+      <button class="wc" id="wc-mini" data-i18n-title="wcMini">&#x25CE;</button>
+      <button class="wc" id="wc-tray" data-i18n-title="wcTray">&#x2013;</button>
+      <button class="wc" id="wc-max" data-i18n-title="wcMax">&#x25A1;</button>
+      <button class="wc close" id="wc-close" data-i18n-title="wcClose">&#x2715;</button>
+    </div>
+  </header>
+
+  <!-- Mini-mode: always-on-top icon; click to expand -->
+  <!-- In-app banner when a Local is detected in the clipboard (reliable fallback to the OS toast) -->
+  <div id="local-banner" hidden>
+    <span id="local-banner-text"></span>
+    <button id="local-banner-show" class="lb-btn"></button>
+    <button id="local-banner-x" class="lb-x" title="✕">&#x2715;</button>
+  </div>
+
+  <div id="mini">
+    <img src="../../assets/icon-256.png" alt="Capsuleers.Intel" data-i18n-title="miniExpand" />
+  </div>
+
+  <!-- Info page -->
+  <div id="about" hidden>
+    <div class="about-panel">
+      <button class="about-close" id="about-close" data-i18n-title="wcClose">&#x2715;</button>
+      <img class="about-logo" src="../../assets/icon-256.png" alt="" />
+      <div class="about-title">CAPSULEERS<b>.INTEL</b></div>
+      <div class="about-sub" data-i18n="aboutSub">Assistente locale per EVE Online</div>
+      <div class="about-powered">
+        <span data-i18n="aboutPowered">powered by</span> <a href="https://capsuleers.app" target="_blank" rel="noopener">capsuleers.app</a>
+      </div>
+      <div class="about-credit" data-i18n-html="aboutCredit"></div>
+      <div class="about-disc">
+        <p data-i18n-html="aboutDisc1"><b>Strumento non ufficiale</b> creato da fan, non affiliato né approvato da Fenris Creations.</p>
+        <p data-i18n="aboutDisc2">EVE Online e il logo EVE sono marchi registrati di Fenris Creations. Tutti i diritti riservati.
+        Tutti i nomi di prodotti, loghi e marchi citati appartengono ai rispettivi proprietari.
+        Fenris Creations non è in alcun modo responsabile del contenuto o del funzionamento di questa
+        applicazione, né può essere ritenuta responsabile per eventuali danni derivanti dal suo utilizzo.</p>
+        <p data-i18n-html="aboutDisc3">Dati e servizi: EVE Static Data Export ed ESI (Fenris Creations), EVE University Wiki (CC BY-NC-SA),
+        eve-survival (missioni PvE), Anoikis (wormhole), EVE Ref (prezzi), eve-kill (killboard + analisi MCP) ed EVE-Scout (Thera/Turnur).
+        Le risposte sono generate da un'IA locale e possono contenere errori: <b>verifica sempre in gioco</b>.</p>
+      </div>
+    </div>
+  </div>
+  <!-- Content area: the inline views (home/local/dscan/history) + the right-side pilot drawer. -->
+  <div id="content">
+  <!-- Local Intel panel -->
+  <div id="local">
+    <div class="local-panel">
+      <button class="local-close" id="local-close" data-i18n-title="backHome">&#x2190;</button>
+      <div class="local-head">
+        <h2 data-i18n-html="localTitle">INTEL <b>LOCAL</b></h2>
+        <span class="local-sub" id="local-sub"></span>
+        <button class="local-action" id="local-share" hidden>
+          <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>
+          <span id="local-share-label"></span>
+        </button>
+      </div>
+      <div class="local-share-out" id="local-share-out" hidden>
+        <span class="msg" id="local-share-msg"></span>
+        <a id="local-share-url" target="_blank" rel="noopener"></a>
+        <span class="exp" id="local-share-exp"></span>
+        <button class="local-action ghost" id="local-share-copy" hidden></button>
+      </div>
+      <div class="local-body" id="local-body"></div>
+    </div>
+  </div>
+
+  <!-- Shared-link history modal (opened from the header) -->
+  <div id="history-modal">
+    <div class="local-panel hist-modal-panel">
+      <button class="local-close" id="history-close" data-i18n-title="backHome">&#x2190;</button>
+      <div class="local-head">
+        <h2 data-i18n-html="historyModalTitle">STORICO <b>LINK</b></h2>
+      </div>
+      <div class="local-history" id="local-history"></div>
+    </div>
+  </div>
+
+  <!-- D-Scan analysis modal -->
+  <div id="dscan">
+    <div class="local-panel dscan-panel">
+      <button class="local-close" id="dscan-close" data-i18n-title="backHome">&#x2190;</button>
+      <div class="local-head">
+        <h2 data-i18n-html="dscanTitle">D-<b>SCAN</b></h2>
+        <span class="local-sub" id="dscan-sub"></span>
+        <button class="local-action" id="dscan-share" hidden>
+          <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>
+          <span id="dscan-share-label"></span>
+        </button>
+      </div>
+      <div class="local-share-out" id="dscan-share-out" hidden>
+        <span class="msg" id="dscan-share-msg"></span>
+        <a id="dscan-share-url" target="_blank" rel="noopener"></a>
+        <span class="exp" id="dscan-share-exp"></span>
+        <button class="local-action ghost" id="dscan-share-copy" hidden></button>
+      </div>
+      <div class="local-body" id="dscan-body"></div>
+    </div>
+  </div>
+
+  <!-- Pilot detail popup -->
+  <div id="pilot">
+    <div class="pilot-card" id="pilot-card"></div>
+  </div>
+
+  <div id="chat"></div>
+  </div><!-- /#content -->
+
+  <!-- Action toolbar: Intel clipboard-watch toggle + shared-link history. -->
+  <div class="toolbar">
+    <button id="local-btn" class="tag-btn" data-i18n-title="btnLocalTitle">
+      <svg class="ico" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="3" width="8" height="4" rx="1"/><path d="M16 5h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"/><path d="M9 12h6M9 16h4"/></svg>
+      <span data-i18n="btnLocal">Intel</span>
+    </button>
+    <button id="scan-now" class="tag-btn" data-i18n-title="btnScanTitle">
+      <svg class="ico" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <span data-i18n="btnScan">Scansiona</span>
+    </button>
+    <button id="history-btn" class="tag-btn" data-i18n-title="btnHistoryTitle">
+      <svg class="ico" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+      <span data-i18n="btnHistory">Storico</span>
+    </button>
+  </div>
+
+  <script>
+    // Custom window controls
+    document.getElementById("wc-mini").addEventListener("click", () => capsuleers.win.mini());
+    document.getElementById("wc-tray").addEventListener("click", () => capsuleers.win.minimize());
+    document.getElementById("wc-max").addEventListener("click", () => capsuleers.win.maximize());
+    document.getElementById("wc-close").addEventListener("click", () => capsuleers.win.close());
+    capsuleers.win.onState((max) => { document.getElementById("wc-max").innerHTML = max ? "&#x2750;" : "&#x25A1;"; });
+    // Mini-mode: click the icon to return to the interface
+    document.querySelector("#mini img").addEventListener("click", () => capsuleers.win.restore());
+    capsuleers.win.onMiniState((mini) => document.body.classList.toggle("mini", mini));
+
+    // Info page
+    const about = document.getElementById("about");
+    document.getElementById("wc-info").addEventListener("click", () => about.hidden = false);
+    document.getElementById("about-close").addEventListener("click", () => about.hidden = true);
+    about.addEventListener("click", (e) => { if (e.target === about) about.hidden = true; });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") about.hidden = true; });
+
+    // --- Local Intel from clipboard ---
+    const localPanel = document.getElementById("local");
+    const localBody = document.getElementById("local-body");
+    const localSub = document.getElementById("local-sub");
+    // Inline view router: exactly one of home/local/dscan/history fills the content area
+    // between header and toolbar — no floating popups (the pilot drill-down stays a popup).
+    const VIEW_IDS = { home: "chat", local: "local", dscan: "dscan", history: "history-modal" };
+    let currentView = "home", prevView = "home";
+    function showView(name) {
+      if (name === "history" && currentView !== "history") prevView = currentView;
+      for (const [k, id] of Object.entries(VIEW_IDS)) document.getElementById(id).classList.toggle("show", k === name);
+      document.getElementById("pilot").classList.remove("open");   // a view switch closes the pilot drawer
+      currentView = name;
+      if (name !== "history") stopHistTimer();   // stop the countdown ticker when leaving History
+    }
+    function openLocal() { showView("local"); }
+    function closeLocal() { showView("home"); }
+    document.getElementById("local-close").addEventListener("click", closeLocal);
+    // Single Escape handler. Closes the pilot drawer first (if open), else steps the view back.
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      if (!document.getElementById("about").hidden) return;   // about overlay closes itself
+      if (document.getElementById("pilot").classList.contains("open")) { closePilot(); return; }
+      if (currentView === "history") showView(prevView);
+      else if (currentView !== "home") showView("home");
+    });
+
+    // Click on the header button: toggles clipboard watching and opens the panel.
+    const localBtn = document.getElementById("local-btn");
+    const watchStatus = document.getElementById("watch-status");
+    const watchLabel = document.getElementById("watch-label");
+    // Reflect the clipboard-watch state everywhere: the header status chip (the
+    // unmistakable ON/OFF indicator) + the toolbar Intel button.
+    function setWatchUI(on) {
+      localBtn.classList.toggle("active", on);
+      localBtn.title = on ? L.localOn : L.localOff;
+      watchStatus.classList.toggle("on", on);
+      watchStatus.classList.toggle("off", !on);
+      watchLabel.textContent = on ? L.watchOn : L.watchOff;
+      watchStatus.title = on ? L.watchOnTitle : L.watchOffTitle;
+    }
+    async function refreshLocalBtn() { setWatchUI(await capsuleers.local.state()); }
+    // Audible cue for a detected Local: an app-played sound (not the OS toast,
+    // which Windows suppresses via Focus Assist while a game runs fullscreen), so
+    // you hear it even when gaming on another monitor. Primed on the toggle click
+    // (a user gesture) so the AudioContext is allowed to play later.
+    let _ac = null;
+    function primeAudio() { try { _ac = _ac || new (window.AudioContext || window.webkitAudioContext)(); if (_ac.state === "suspended") _ac.resume(); } catch { /* no audio */ } }
+    function localBeep() {
+      try {
+        primeAudio(); if (!_ac) return;
+        const t = _ac.currentTime;
+        for (const [i, f] of [[0, 880], [0.16, 1245]]) {  // two short rising tones
+          const o = _ac.createOscillator(), g = _ac.createGain();
+          o.type = "sine"; o.frequency.value = f;
+          g.gain.setValueAtTime(0.0001, t + i);
+          g.gain.exponentialRampToValueAtTime(0.3, t + i + 0.02);
+          g.gain.exponentialRampToValueAtTime(0.0001, t + i + 0.16);
+          o.connect(g).connect(_ac.destination);
+          o.start(t + i); o.stop(t + i + 0.17);
+        }
+      } catch { /* audio not available */ }
+    }
+
+    const toggleWatch = async () => { primeAudio(); await capsuleers.local.toggle(); refreshLocalBtn(); };
+    localBtn.addEventListener("click", toggleWatch);
+    watchStatus.addEventListener("click", toggleWatch);
+    refreshLocalBtn();
+
+    // In-app banner when a Local is detected (reliable even if the OS toast is missed).
+    const localBanner = document.getElementById("local-banner");
+    const hideLocalBanner = () => { localBanner.hidden = true; };
+    capsuleers.local.onDetected(({ kind, count }) => {
+      const isD = kind === "dscan";
+      document.getElementById("local-banner-text").textContent = isD ? L.dscanDetected(count) : L.localDetected(count);
+      document.getElementById("local-banner-show").textContent = isD ? L.dscanAnalyze : L.localShowIntel;
+      localBanner.hidden = false;
+      localBeep();
+    });
+    document.getElementById("local-banner-show").addEventListener("click", () => { hideLocalBanner(); capsuleers.local.confirm(); });
+    document.getElementById("local-banner-x").addEventListener("click", hideLocalBanner);
+    capsuleers.local.onStart(hideLocalBanner);          // local intel started → hide the banner
+    capsuleers.local.onDScanStart(hideLocalBanner);     // d-scan analysis started → hide the banner
+
+    const HOT_FLAGS = /^(capital|FC:|bait)/;
+    function localRow(r) {
+      const a = document.createElement("div");
+      a.className = "lrow d" + (r.danger || 0);
+      if (r.id) {
+        a.style.cursor = "pointer";
+        a.title = L.intelDetail;
+        a.addEventListener("click", () => openPilot({ id: r.id, name: r.name }));
+      }
+      // Alliance + corp logos (square). Placeholder when missing, to keep alignment.
+      const alliLogo = r.allianceId
+        ? `<img class="alli" src="${IMG}/alliances/${r.allianceId}/logo?size=32" alt="" title="${esc(r.allianceName||"")}" />`
+        : `<span class="ph"></span>`;
+      const corpLogo = r.corpId
+        ? `<img class="corp" src="${IMG}/corporations/${r.corpId}/logo?size=32" alt="" title="${esc(r.corpName||"")}" />`
+        : `<span class="ph"></span>`;
+      const portrait = r.id ? `<img class="portrait" src="${IMG}/characters/${r.id}/portrait?size=32" alt="" />` : "";
+      // Ticker before the name: <ALLI> [CORP] Name (EVE convention).
+      const alliTk = r.allianceTicker ? `<span class="tk alli">&lt;${esc(r.allianceTicker)}&gt;</span>` : "";
+      const corpTk = r.corpTicker ? `<span class="tk corp">[${esc(r.corpTicker)}]</span>` : "";
+      const kd = r.found
+        ? `${L.killAbbr} ${r.kills ?? 0} / ${L.lossAbbr} ${r.losses ?? 0}${r.eff != null ? " · " + r.eff + "%" : ""}`
+        : L.notFound;
+      const flags = (r.flags || []).map((f) =>
+        `<span class="lflag${HOT_FLAGS.test(f) ? " hot" : ""}">${esc(f)}</span>`).join("");
+      a.innerHTML =
+        `<span class="dot" title="${esc(L.danger[r.danger||0])}"></span>` +
+        `<span class="logos">${alliLogo}${corpLogo}</span>` +
+        (r.id ? portrait : `<span></span>`) +
+        `<span class="lname">${alliTk}${corpTk}<span class="lnm${r.found ? "" : " miss"}">${esc(r.name)}</span></span>` +
+        `<span class="lkd">${esc(kd)}</span>` +
+        `<span class="lflags">${flags}</span>`;
+      return a;
+    }
+
+    capsuleers.local.onStart(({ total }) => {
+      openLocal();
+      localSub.textContent = L.localResolving(total);
+      localBody.innerHTML = `<div class="local-prog">${L.loadingIntel} <span id="lp">0</span>/${total}` +
+        `<div class="local-bar"><i id="lpbar"></i></div></div>`;
+    });
+    capsuleers.local.onProgress(({ done, total }) => {
+      const lp = document.getElementById("lp"), bar = document.getElementById("lpbar");
+      if (lp) lp.textContent = done;
+      if (bar) bar.style.width = Math.round((done / total) * 100) + "%";
+    });
+    capsuleers.local.onResult((res) => {
+      openLocal();
+      if (res.error) { localBody.innerHTML = `<div class="local-prog">⚠ ${esc(res.error)}</div>`; return; }
+      const danger = res.rows.filter((r) => r.danger >= 2).length;
+      localSub.textContent = L.pilotsCount(res.rows.length) +
+        (res.capped ? L.resolvedOf(res.resolved, res.total) : "") +
+        (danger ? L.dangerousCount(danger) : "");
+      localBody.innerHTML = "";
+      for (const r of res.rows) localBody.appendChild(localRow(r));
+    });
+
+    // ── Share the intel + history of generated links ─────────────────────────
+    const shareBtn = document.getElementById("local-share");
+    const shareLabel = document.getElementById("local-share-label");
+    const shareOut = document.getElementById("local-share-out");
+    const shareMsg = document.getElementById("local-share-msg");
+    const shareUrlEl = document.getElementById("local-share-url");
+    const shareExpEl = document.getElementById("local-share-exp");
+    const shareCopyBtn = document.getElementById("local-share-copy");
+    const histBtn = document.getElementById("history-btn");      // header button
+    const histPanel = document.getElementById("local-history");  // list, inside the history modal
+    const histModal = document.getElementById("history-modal");
+    // NB: labels are set lazily (in onResult, below) — `const L` is declared
+    // further down in this same script, so touching it at top-level here would
+    // hit the temporal-dead-zone and abort the rest of the script.
+
+    let _lastShareUrl = null, _histTimer = null;
+    function stopHistTimer() { if (_histTimer) { clearInterval(_histTimer); _histTimer = null; } }
+
+    // Reset the share UI for a fresh resolution; re-show the Share button once results land.
+    function hideShareUi() {
+      shareOut.hidden = true; shareOut.classList.remove("err", "pending");
+      shareBtn.hidden = true;
+    }
+    capsuleers.local.onStart(hideShareUi);
+    capsuleers.local.onResult((res) => {
+      if (res && !res.error && Array.isArray(res.rows) && res.rows.some((r) => r.id)) {
+        shareBtn.hidden = false; shareBtn.disabled = false;
+        shareLabel.textContent = L.shareBtn; shareBtn.title = L.shareTitle;
+        shareCopyBtn.textContent = L.shareCopy;
+      }
+    });
+
+    // Human "23h 59m" / "12m 30s" / "45s" remaining; null when past/invalid.
+    function fmtRemain(expMs) {
+      let s = Math.floor((Number(expMs) - Date.now()) / 1000);
+      if (!Number.isFinite(s) || s <= 0) return null;
+      const h = Math.floor(s / 3600); s -= h * 3600;
+      const m = Math.floor(s / 60); s -= m * 60;
+      if (h > 0) return `${h}h ${m}m`;
+      if (m > 0) return `${m}m ${s}s`;
+      return `${s}s`;
+    }
+
+    shareBtn.addEventListener("click", async () => {
+      shareBtn.disabled = true; shareLabel.textContent = L.sharing;
+      // Show the share row immediately with a "processing" placeholder until the server replies.
+      shareOut.classList.remove("err"); shareOut.classList.add("pending");
+      shareMsg.textContent = L.shareProcessing;
+      shareUrlEl.textContent = ""; shareUrlEl.removeAttribute("href");
+      shareExpEl.textContent = ""; shareCopyBtn.hidden = true;
+      shareOut.hidden = false;
+      let r;
+      try { r = await capsuleers.local.share(); } catch (e) { r = { error: e.message }; }
+      shareBtn.disabled = false; shareLabel.textContent = L.shareBtn;
+      shareOut.classList.remove("pending");
+      if (!r || r.error) {
+        shareOut.classList.add("err");
+        shareMsg.textContent = L.shareErr;
+        shareUrlEl.textContent = ""; shareUrlEl.removeAttribute("href");
+        shareExpEl.textContent = ""; shareCopyBtn.hidden = true;
+        shareOut.hidden = false;
+        return;
+      }
+      _lastShareUrl = r.url;
+      shareMsg.textContent = L.shareCopied;          // "Link copiato negli appunti — pronto da condividere"
+      shareUrlEl.textContent = r.url; shareUrlEl.href = r.url;
+      const rem = fmtRemain(typeof r.expiresAt === "string" ? Date.parse(r.expiresAt) : r.expiresAt);
+      shareExpEl.textContent = rem ? L.shareExpires(rem) : "";
+      shareCopyBtn.hidden = false; shareCopyBtn.textContent = L.shareCopy;
+      shareOut.hidden = false;
+      if (histModal.classList.contains("show")) renderHistory();   // keep an open history list fresh
+    });
+
+    shareCopyBtn.addEventListener("click", () => {
+      if (!_lastShareUrl) return;
+      capsuleers.clipboard.write(_lastShareUrl);
+      shareCopyBtn.textContent = L.shareCopiedShort;
+      setTimeout(() => { shareCopyBtn.textContent = L.shareCopy; }, 1400);
+    });
+
+    function tickHistCountdowns() {
+      let anyLive = false;
+      for (const el of histPanel.querySelectorAll(".lh-exp[data-exp]")) {
+        const rem = fmtRemain(el.dataset.exp);
+        if (rem) {
+          anyLive = true; el.textContent = rem;
+          el.classList.toggle("soon", (Number(el.dataset.exp) - Date.now()) < 3600000);
+        } else { el.closest(".lh-row")?.remove(); }   // expired mid-view → drop the row
+      }
+      if (!anyLive) renderHistory();   // list emptied → re-render the empty state
+    }
+
+    async function renderHistory() {
+      let list = [];
+      try { list = await capsuleers.local.history.list(); } catch { list = []; }
+      stopHistTimer();
+      if (!list.length) {
+        histPanel.innerHTML =
+          `<div class="lh-head">${esc(L.historyTitle)}</div><div class="lh-empty">${esc(L.historyEmpty)}</div>`;
+        return;
+      }
+      const rows = list.map((e) => {
+        const when = new Date(e.createdAt).toLocaleString(SYS_LANG === "it" ? "it-IT" : "en-GB",
+          { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+        const kind = e.kind || "intel";
+        const count = e.count ?? e.pilotCount;   // back-compat with pre-kind entries
+        const badge = `<span class="lh-kind ${esc(kind)}">${esc(kind === "dscan" ? L.dscanShort : L.intelShort)}</span>`;
+        const label = count != null ? (kind === "dscan" ? L.objectsShort(count) : L.pilotsShort(count)) : "";
+        const cnt = label ? `<span class="lh-cnt">· ${esc(label)}</span>` : "";
+        return `<div class="lh-row" data-url="${esc(String(e.url || ""))}">` +
+          `${badge}<span class="lh-when">${esc(when)}</span>${cnt}` +
+          `<span class="lh-exp" data-exp="${e.expiresAt}"></span>` +
+          `<button class="lh-open">${esc(L.shareOpen)}</button>` +
+          `<button class="lh-copy">${esc(L.shareCopy)}</button></div>`;
+      }).join("");
+      histPanel.innerHTML =
+        `<div class="lh-head">${esc(L.historyTitle)}<button class="lh-clear">${esc(L.historyClear)}</button></div>` +
+        `<div class="lh-list">${rows}</div>`;
+      histPanel.querySelector(".lh-clear")?.addEventListener("click", async () => {
+        try { await capsuleers.local.history.clear(); } catch { /* */ }
+        renderHistory();
+      });
+      for (const row of histPanel.querySelectorAll(".lh-row")) {
+        row.querySelector(".lh-open")?.addEventListener("click", () => {
+          const u = row.dataset.url; if (u) window.open(u, "_blank");   // opens in the system browser
+        });
+        row.querySelector(".lh-copy")?.addEventListener("click", () => {
+          const u = row.dataset.url; if (!u) return;
+          capsuleers.clipboard.write(u);
+          const b = row.querySelector(".lh-copy");
+          b.textContent = L.shareCopiedShort; setTimeout(() => { b.textContent = L.shareCopy; }, 1400);
+        });
+      }
+      tickHistCountdowns();
+      _histTimer = setInterval(tickHistCountdowns, 1000);
+    }
+
+    function openHistory() { showView("history"); renderHistory(); }
+    function closeHistory() { showView(prevView); }
+    // The Storico toolbar button toggles the history view (open ↔ back to previous view).
+    histBtn.addEventListener("click", () => { if (currentView === "history") closeHistory(); else openHistory(); });
+    document.getElementById("history-close").addEventListener("click", closeHistory);
+
+    // ── D-Scan analysis modal ────────────────────────────────────────────────
+    const dscanOv = document.getElementById("dscan");
+    const dscanBody = document.getElementById("dscan-body");
+    const dscanSub = document.getElementById("dscan-sub");
+    function openDscan() { showView("dscan"); }
+    function closeDscan() { showView("home"); }
+    document.getElementById("dscan-close").addEventListener("click", closeDscan);
+
+    // D-Scan share (mirror of the local-intel share; writes into the same history).
+    const dsShareBtn = document.getElementById("dscan-share");
+    const dsShareLabel = document.getElementById("dscan-share-label");
+    const dsShareOut = document.getElementById("dscan-share-out");
+    const dsShareMsg = document.getElementById("dscan-share-msg");
+    const dsShareUrlEl = document.getElementById("dscan-share-url");
+    const dsShareExpEl = document.getElementById("dscan-share-exp");
+    const dsShareCopyBtn = document.getElementById("dscan-share-copy");
+    let _dsShareUrl = null;
+    function hideDScanShare() { dsShareOut.hidden = true; dsShareOut.classList.remove("err", "pending"); dsShareBtn.hidden = true; }
+    capsuleers.local.onDScanStart(hideDScanShare);   // reset on a fresh analysis
+    dsShareBtn.addEventListener("click", async () => {
+      dsShareBtn.disabled = true; dsShareLabel.textContent = L.sharing;
+      // Show the share row immediately with a "processing" placeholder until the server replies.
+      dsShareOut.classList.remove("err"); dsShareOut.classList.add("pending");
+      dsShareMsg.textContent = L.shareProcessing;
+      dsShareUrlEl.textContent = ""; dsShareUrlEl.removeAttribute("href");
+      dsShareExpEl.textContent = ""; dsShareCopyBtn.hidden = true;
+      dsShareOut.hidden = false;
+      let r;
+      try { r = await capsuleers.local.shareDScan(); } catch (e) { r = { error: e.message }; }
+      dsShareBtn.disabled = false; dsShareLabel.textContent = L.shareBtn;
+      dsShareOut.classList.remove("pending");
+      if (!r || r.error) {
+        dsShareOut.classList.add("err");
+        dsShareMsg.textContent = L.shareErr;
+        dsShareUrlEl.textContent = ""; dsShareUrlEl.removeAttribute("href");
+        dsShareExpEl.textContent = ""; dsShareCopyBtn.hidden = true;
+        dsShareOut.hidden = false;
+        return;
+      }
+      _dsShareUrl = r.url;
+      dsShareMsg.textContent = L.shareCopied;
+      dsShareUrlEl.textContent = r.url; dsShareUrlEl.href = r.url;
+      const rem = fmtRemain(typeof r.expiresAt === "string" ? Date.parse(r.expiresAt) : r.expiresAt);
+      dsShareExpEl.textContent = rem ? L.shareExpires(rem) : "";
+      dsShareCopyBtn.hidden = false; dsShareCopyBtn.textContent = L.shareCopy;
+      dsShareOut.hidden = false;
+      if (histModal.classList.contains("show")) renderHistory();
+    });
+    dsShareCopyBtn.addEventListener("click", () => {
+      if (!_dsShareUrl) return;
+      capsuleers.clipboard.write(_dsShareUrl);
+      dsShareCopyBtn.textContent = L.shareCopiedShort;
+      setTimeout(() => { dsShareCopyBtn.textContent = L.shareCopy; }, 1400);
+    });
+
+    const dsCat = (name) => (L.dscanCats && L.dscanCats[name]) || name;
+    function dsBlock(title, badge, inner) {
+      return `<div class="ds-block"><div class="ds-block-h"><span>${esc(title)}</span>` +
+        (badge ? `<span class="ds-badge">${esc(badge)}</span>` : "") + `</div>${inner}</div>`;
+    }
+    capsuleers.local.onDScanStart(({ total }) => {
+      openDscan();
+      dscanSub.textContent = L.dscanResolving(total);
+      dscanBody.innerHTML = `<div class="local-prog">${esc(L.dscanAnalyzing)}</div>`;
+    });
+    capsuleers.local.onDScanResult((res) => {
+      openDscan();
+      if (!res || res.error) {
+        dscanSub.textContent = "";
+        dscanBody.innerHTML = `<div class="local-prog">⚠ ${esc(res?.error || L.noData)}</div>`;
+        return;
+      }
+      dscanSub.textContent = L.dscanEntities(res.total);
+      let html = "";
+      if (res.system) html += `<div class="ds-system"><span class="lbl">${esc(L.dscanSystem)}</span><span class="val">${esc(res.system)}</span></div>`;
+      // SHIP CLASSES — stat cards, threat-sorted (capitals in red).
+      if (res.shipClasses.length) {
+        const cards = res.shipClasses.map((c) =>
+          `<div class="ds-card${c.capital ? " cap" : ""}"><div class="ds-card-n">${c.count}</div><div class="ds-card-l">${esc(c.cls)}</div></div>`).join("");
+        html += dsBlock(L.dscanShipClasses, String(res.shipClasses.length), `<div class="ds-cards">${cards}</div>`);
+      }
+      // SHIPS — individual hulls with type icons, count-sorted.
+      if (res.ships.length) {
+        const rows = res.ships.map((s) =>
+          `<div class="ds-srow"><img class="ds-ico" loading="lazy" alt="" src="${IMG}/types/${s.typeId}/icon?size=64"><span class="nm">${esc(s.name)}</span><span class="cnt">×${s.count}</span></div>`).join("");
+        html += dsBlock(L.dscanShips, L.dscanUnits(res.shipUnits), `<div class="ds-grid2">${rows}</div>`);
+      }
+      // OTHER ENTITIES — non-ship categories.
+      if (res.other.length) {
+        const rows = res.other.map((o) =>
+          `<div class="ds-orow"><span class="nm">${esc(dsCat(o.name))}</span><span class="cnt">×${o.count}</span></div>`).join("");
+        html += dsBlock(L.dscanOther, "", `<div class="ds-grid2">${rows}</div>`);
+      }
+      dscanBody.innerHTML = html || `<div class="ds-empty">${esc(L.dscanNone)}</div>`;
+      // Offer sharing once we have a real breakdown.
+      if (res.total > 0) {
+        dsShareBtn.hidden = false; dsShareBtn.disabled = false;
+        dsShareLabel.textContent = L.shareBtn; dsShareBtn.title = L.shareTitle;
+        dsShareCopyBtn.textContent = L.shareCopy;
+      }
+    });
+
+    // --- Pilot detail popup ---
+    const pilotOv = document.getElementById("pilot");
+    const pilotCard = document.getElementById("pilot-card");
+    // Pilot detail is a right-side drawer over the active view (the roster stays behind).
+    // Clicking the dimmed backdrop or the back button / Esc closes it.
+    function closePilot() { pilotOv.classList.remove("open"); }
+    pilotOv.addEventListener("click", (e) => { if (e.target === pilotOv) closePilot(); });
+
+    const DANGER_COL = ["#3a7bd5", "#39b54a", "#f0a020", "#c0392b"];
+    async function openPilot(who) {
+      pilotOv.classList.add("open");
+      pilotCard.innerHTML = `<button class="pilot-close" title="${L.backHome}">&#x2190;</button>` +
+        `<div class="pilot-loading">${esc(L.loadingIntelOf(who.name || ""))}</div>`;
+      pilotCard.querySelector(".pilot-close").addEventListener("click", closePilot);
+      let d;
+      try { d = await capsuleers.local.detail(who); } catch (e) { d = { error: e.message }; }
+      if (!d || d.error) {
+        pilotCard.innerHTML = `<button class="pilot-close" title="${L.backHome}">&#x2190;</button>` +
+          `<div class="pilot-loading">⚠ ${esc(d?.error || L.noData)}</div>`;
+        pilotCard.querySelector(".pilot-close").addEventListener("click", closePilot);
+        return;
+      }
+      renderPilot(d);
+    }
+
+    function renderPilot(d) {
+      const aff = [d.allianceName, d.corpName].filter(Boolean).join(" | ");
+      const p = d.play || {}; const tot = Math.max(1, (p.solo||0)+(p.small||0)+(p.fleet||0));
+      const pct = (v) => Math.round((v / tot) * 100);
+      const dom = (d.dominant || "").toLowerCase();
+      const isSolo = dom.includes("solo"), isFleet = dom.includes("fleet") || dom.includes("blob");
+      const isSmall = !isSolo && !isFleet;
+      const partners = (d.partners || []).map((x) =>
+        `<a class="chip" data-pilot="${x.id}" data-name="${esc(x.name)}">` +
+        `<img src="${IMG}/characters/${x.id}/portrait?size=32" alt="" />` +
+        `<span>${esc(x.name)}</span><span class="c-ct">(${x.count})</span></a>`).join("");
+      const ships = (d.ships || []).map((s) =>
+        `<span class="chip"><img class="sq" src="${IMG}/types/${s.id}/icon?size=32" alt="" />` +
+        `<span>${esc(s.name)}</span><span class="c-ct">(${s.count})</span></span>`).join("");
+      const tags = [];
+      if (d.capital_pilot) tags.push(`<span class="t hot">capital</span>`);
+      if (d.is_logi) tags.push(`<span class="t">logi</span>`);
+      if (d.fc) tags.push(`<span class="t hot">FC: ${esc(d.fc)}</span>`);
+      if (d.bait) tags.push(`<span class="t hot">bait: ${esc(d.bait)}</span>`);
+
+      pilotCard.innerHTML =
+        `<button class="pilot-close" title="${L.backHome}">&#x2190;</button>` +
+        `<img class="pilot-portrait" src="${IMG}/characters/${d.id}/portrait?size=128" alt="" />` +
+        `<div class="pilot-name">${esc(d.name)}</div>` +
+        (aff ? `<div class="pilot-aff">${esc(aff)}</div>` : "") +
+        `<div class="pilot-stats">` +
+          `<div class="s"><b>${d.kills ?? "?"}</b><span>${L.statKills}</span></div>` +
+          `<div class="s"><b>${d.losses ?? "?"}</b><span>${L.statLoss}</span></div>` +
+          `<div class="s eff"><b>${d.eff != null ? d.eff + "%" : "?"}</b><span>${L.statEff}</span></div>` +
+        `</div>` +
+        (tags.length ? `<div class="pilot-tags">${tags.join("")}</div>` : "") +
+        `<div class="pbar-labels">` +
+          `<span class="pl solo${isSolo?" on":""}">SOLO ${pct(p.solo)}%</span>` +
+          `<span class="pl small${isSmall?" on":""}">SMALL ${pct(p.small)}%</span>` +
+          `<span class="pl fleet${isFleet?" on":""}">FLEET ${pct(p.fleet)}%</span>` +
+        `</div>` +
+        `<div class="pbar">` +
+          `<i class="b-solo" style="width:${pct(p.solo)}%"></i>` +
+          `<i class="b-small" style="width:${pct(p.small)}%"></i>` +
+          `<i class="b-fleet" style="width:${pct(p.fleet)}%"></i>` +
+        `</div>` +
+        (partners ? `<div class="pilot-sect"><h4>${L.fliesWith}</h4><div class="chips">${partners}</div></div>` : "") +
+        (ships ? `<div class="pilot-sect"><h4>${L.recentShips}</h4><div class="chips">${ships}</div></div>` : "") +
+        `<div class="pilot-links">` +
+          `<a class="pilot-link" title="${L.titleOverview}" data-url="https://capsuleers.app/${SYS_LANG}/character/${d.id}">` +
+            `<svg class="ico" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>` +
+            `<span>${L.lblOverview}</span></a>` +
+          `<a class="pilot-link" title="${L.titlePvp}" data-url="https://eve-kill.com/character/${d.id}">` +
+            `<svg class="ico" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="2.4"/></svg>` +
+            `<span>${L.lblPvp}</span></a>` +
+        `</div>`;
+
+      pilotCard.querySelector(".pilot-close").addEventListener("click", closePilot);
+      // Opens external links in the system browser (overview on capsuleers.app, PvP on eve-kill.com).
+      for (const a of pilotCard.querySelectorAll(".pilot-link")) {
+        a.addEventListener("click", (e) => { e.preventDefault(); window.open(a.dataset.url, "_blank"); });
+      }
+      // Click on a partner → opens their detail (drill-down).
+      for (const c of pilotCard.querySelectorAll(".chip[data-pilot]")) {
+        c.addEventListener("click", () => openPilot({ id: Number(c.dataset.pilot), name: c.dataset.name }));
+      }
+    }
+
+    const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const IMG = "https://images.evetech.net";
+    // System language (Electron reflects the system locale in navigator.language).
+    const SYS_LANG = (navigator.language || "en").toLowerCase().startsWith("it") ? "it" : "en";
+
+    // Dictionary of all GUI strings. Entries can be functions
+    // when dynamic values are needed (counts, names…).
+    const I18N = {
+      it: {
+        btnLocal: "Intel", btnLocalTitle: "Intel Local da appunti (copia la Local da EVE)",
+        watchOn: "ASCOLTO ATTIVO", watchOff: "ASCOLTO SPENTO",
+        watchOnTitle: "Sto leggendo gli appunti (Local / D-Scan). Click per mettere in pausa.",
+        watchOffTitle: "Ascolto appunti in pausa. Click per attivarlo.",
+        btnScan: "Scansiona", btnScanTitle: "Analizza subito gli appunti (Local o D-Scan)",
+        homeTitle: "INTEL <b>LOCAL</b> &amp; D-SCAN",
+        homeIntro: "Strumento intel da appunti per EVE Online. L'ascolto degli appunti è già attivo: copia la tua Local o un D-Scan e ti dico chi hai intorno e com'è composta la flotta nemica. Puoi disattivarlo dal pulsante Intel o dal tray.",
+        homeLocalH: "Intel Local",
+        homeLocalT: "Nella finestra Local di EVE: Ctrl+A, Ctrl+C. Compaiono i piloti con kill/perdite, efficienza, tag e dossier.",
+        homeDscanH: "Analisi D-Scan",
+        homeDscanT: "Copia un D-Scan (Ctrl+C nella finestra D-Scan): ottieni la composizione per classe di nave, offline.",
+        homeHistoryH: "Condividi",
+        homeHistoryT: "Ogni intel o D-Scan può diventare un link condivisibile (valido 24h) su capsuleers.app. Lo trovi nello Storico.",
+        homeTip: "Suggerimento: tieni l'ascolto attivo mentre giochi — un suono ti avvisa appena rilevo una Local o un D-Scan.",
+        wcInfo: "Informazioni", wcMini: "Riduci a icona (always-on-top)", wcTray: "Riduci nel tray",
+        wcMax: "Massimizza", wcClose: "Chiudi", miniExpand: "Click per espandere", backHome: "Indietro",
+        aboutSub: "Intel da appunti per EVE Online", aboutPowered: "powered by",
+        aboutCredit: 'Creato da <a href="https://capsuleers.app/it/character/789877270" target="_blank" rel="noopener">TremalJack</a> e dal supporto della community di EVE Online.',
+        aboutDisc1: "<b>Strumento non ufficiale</b> creato da fan, non affiliato né approvato da Fenris Creations.",
+        aboutDisc2: "EVE Online e il logo EVE sono marchi registrati di Fenris Creations. Tutti i diritti riservati. Tutti i nomi di prodotti, loghi e marchi citati appartengono ai rispettivi proprietari. Fenris Creations non è in alcun modo responsabile del contenuto o del funzionamento di questa applicazione, né può essere ritenuta responsabile per eventuali danni derivanti dal suo utilizzo.",
+        aboutDisc3: "Dati e servizi: EVE Static Data Export ed ESI (Fenris Creations), EVE Ref (prezzi) ed eve-kill (killboard + dossier). L'analisi del D-Scan è 100% offline; l'intel della Local interroga eve-kill. <b>Verifica sempre in gioco</b>.",
+        modelsTitle: "MODELLO <b>IA</b>",
+        modelsHint: "Stima sulla VRAM <b>libera ora</b>: più layer entrano in GPU, più la risposta è veloce. Chiudere altre app che usano la GPU (browser, Steam…) libera VRAM e accelera i modelli più grandi. I tempi sono indicativi per una risposta tipica.<br>Il modello che scegli diventa il <b>predefinito</b> e verrà riusato a ogni riavvio dell'app.",
+        localTitle: "INTEL <b>LOCAL</b>",
+        inputPlaceholder: "// interroga: skill, fitting, wormhole…  —  digita / per i comandi",
+        btnSend: "Invia",
+        localOn: "Ascolto appunti ATTIVO — copia la Local da EVE. Click per disattivare.",
+        localOff: "Intel Local da appunti (spento) — click per attivare",
+        localDetected: (n) => `Rilevata Local di ${n} piloti negli appunti`,
+        localShowIntel: "Mostra intel",
+        danger: ["sconosciuto", "basso", "medio", "alto"],
+        intelDetail: "Dettaglio intel", notFound: "nessuna attività PvP negli ultimi 90 giorni",
+        killAbbr: "K", lossAbbr: "P",
+        localResolving: (n) => `risoluzione di ${n} piloti…`,
+        loadingIntel: "Carico l'intel…",
+        pilotsCount: (n) => `${n} piloti`,
+        resolvedOf: (r, t) => ` (risolti ${r}/${t})`,
+        dangerousCount: (n) => ` · ${n} pericolosi`,
+        shareBtn: "Condividi", shareTitle: "Condividi questo intel (link valido 24h)",
+        sharing: "Creo il link…", shareProcessing: "Elaborazione del link condivisibile in corso…", shareErr: "Impossibile creare il link condivisibile",
+        shareCopied: "Link copiato negli appunti — pronto da condividere",
+        shareExpires: (s) => `scade tra ${s}`,
+        shareCopy: "Copia", shareOpen: "Apri", shareCopiedShort: "Copiato!",
+        historyToggle: "Cronologia link condivisi", historyTitle: "Link condivisi",
+        historyEmpty: "Nessun link condiviso di recente.", historyClear: "Svuota",
+        pilotsShort: (n) => `${n} piloti`,
+        objectsShort: (n) => `${n} oggetti`,
+        intelShort: "Intel", dscanShort: "D-Scan",
+        btnHistory: "Storico", btnHistoryTitle: "Link condivisi (storico)",
+        historyModalTitle: "STORICO <b>LINK</b>",
+        dscanTitle: "D-<b>SCAN</b>",
+        dscanDetected: (n) => `Rilevato D-Scan di ${n} oggetti`,
+        dscanAnalyze: "Analizza",
+        dscanResolving: (n) => `analisi di ${n} oggetti…`,
+        dscanAnalyzing: "Analizzo il D-Scan…",
+        dscanSystem: "Sistema",
+        dscanShipClasses: "Classi navi", dscanShips: "Navi", dscanOther: "Altre entità",
+        dscanUnits: (n) => `${n} unità`, dscanEntities: (n) => `${n} entità`,
+        dscanNone: "nessun oggetto",
+        dscanCats: { Ships: "Navi", Structures: "Strutture", Deployables: "Deployable", Drones: "Droni", Celestials: "Celestiali", Others: "Altro" },
+        loadingIntelOf: (name) => `Carico l'intel di ${name}…`,
+        noData: "Nessun dato",
+        statKills: "kills", statLoss: "loss", statEff: "eff",
+        fliesWith: "Vola spesso con", recentShips: "Ultime navi usate",
+        openKillmail: "Apri il killmail su eve-kill.com",
+        sources: "FONTI //",
+        fitCopy: "Copia", fitCopied: "Copiato!",
+        cards: { kill: "Kill", duration: "Durata", isk: "ISK distrutti", iskMin: "ISK/min", alliances: "Alleanze", corps: "Corp", multiParty: "Multi-party",
+          kills: "Kill", losses: "Perdite", kd: "K/D", iskRatio: "ISK ratio", iskEff: "ISK eff.", soloRate: "Solo %", finalBlows: "Final blow", gang: "Gang medio",
+          iskDestroyed: "ISK distrutti", iskLost: "ISK persi", solo: "Solo kill", peak: "Picco attività", shipsFlown: "Navi più usate", shipsLost: "Navi più perse",
+          dim: { ship_flown: "Navi più volate", ship_lost: "Navi più perse", system: "Sistemi più attivi", constellation: "Costellazioni più attive", region: "Regioni più attive",
+            killed_alliance: "Alleanze più uccise", dies_to_alliance: "Uccisa più spesso da (alleanze)", killed_corporation: "Corp più uccise", dies_to_corporation: "Uccisa più spesso da (corp)" },
+          ps: { solo: "Solo", small: "Small gang", mid: "Mid gang", fleet: "Flotta", blob: "Blob" }, avgFleet: "Flotta media",
+          list: { wingmates: "Compagni di volo", prey: "Prede preferite", hunters: "Cacciatori" }, huntingGrounds: "Sistemi di caccia",
+          iskShare: "Quota ISK", contested: "Sistemi contesi", battle: { won: "Vittorioso", lost: "Sconfitto" }, fitsFor: "Fit per",
+          fitHint: "Chiedi «specifiche del #X» (es. «specifiche del #1») per il fitting completo in EFT e l'analisi di quel fit.",
+          fs: { high: "Alto danno", long: "Lunga gittata", dps: "DPS", alpha: "alpha", range: "Gittata", optimal: "Ottimale", ehp: "EHP", cap: "Cap", stable: "stabile",
+            speed: "Velocità", align: "Align", warp: "Warp", targeting: "Targeting", drones: "Droni", activeRep: "Rep attiva", passiveRegen: "Rigen scudo",
+            shield: "Scudo", armor: "Armatura", hull: "Scafo", em: "EM", th: "Th", kin: "Kin", exp: "Exp" } },
+        computing: "Calcolo le stime…",
+        allLayers: (n) => `tutti i ${n} layer in GPU`,
+        someLayers: (g, t) => `solo ${g}/${t} layer in GPU`,
+        vramLine: (free, total, pct) => `VRAM: <b>${free} GB liberi</b> su ${total} GB · ${pct}% in uso`,
+        badgeInUse: "in uso", badgeRecommended: "consigliato",
+        modelsDownloadMore: "Scarica e usa un altro modello",
+        modelsDownload: "Scarica",
+        modelsDelete: "Elimina",
+        modelsDeleteConfirm: (label) => `Eliminare ${label}? Libera spazio su disco; potrai riscaricarlo.`,
+        rating: { veloce: "veloce", accettabile: "accettabile", lento: "lento" },
+        errCap: "Errore", errLow: "errore",
+        setupTitle: "PRIMO <b>AVVIO</b>",
+        setupIntro: "Per funzionare 100% offline, Capsuleers.IA scarica una sola volta il modello IA e l'indice di conoscenza di EVE. Scegli il modello: potrai cambiarlo o aggiungerne altri in seguito.",
+        setupResume: "Se interrompi o cade la connessione, il download riprende da dove era rimasto.",
+        setupStart: "Scarica e avvia", setupCancel: "Annulla", setupRetry: "Riprova",
+        setupInstalled: "già scaricato",
+        setupInclLine: (gb) => `Incluso (una tantum): indice EVE + embedding · ~${gb} GB`,
+        setupTotalLine: (gb) => `Da scaricare ora: ~${gb} GB`,
+        setupErrCap: "Download non riuscito",
+        setupDataTitle: "AGGIORNAMENTO <b>DATI</b>",
+        setupDataIntro: "È disponibile un aggiornamento dell'indice di conoscenza di EVE. Il modello IA è già installato e <b>non</b> verrà riscaricato: si aggiornano solo i dati.",
+        setupDataStart: "Aggiorna e avvia",
+        setupDataTotal: (size) => `Dati da scaricare: ~${size}`,
+        readyLine: (count, gpu) => `ONLINE · ${count} DOC · GPU:${gpu}`,
+        lblOverview: "Overview", titleOverview: "Overview del personaggio su capsuleers.app",
+        lblPvp: "Dati PvP", titlePvp: "Dati PvP e killboard su eve-kill.com",
+        stIndex: "Carico l'indice…",
+        stModels: (c) => `Indice: ${Number(c).toLocaleString()} documenti. Carico i modelli (GPU)…`,
+        stLoadingModel: (n) => `Carico ${n}…`,
+        stReady: (s) => !s.gpu
+          ? `Pronto · ${s.model} (GPU non disponibile: tutto su CPU, lento).`
+          : s.onGpu
+            ? `Pronto · ${s.model} (GPU: ${s.gpu}, ${s.loaded}/${s.total} layer).`
+            : `Pronto · ${s.model} MA LENTO: solo ${s.loaded}/${s.total} layer in GPU (VRAM insufficiente). Chiudi app che usano la GPU.`,
+      },
+      en: {
+        btnLocal: "Intel", btnLocalTitle: "Local intel from clipboard (copy the Local from EVE)",
+        watchOn: "WATCHING", watchOff: "PAUSED",
+        watchOnTitle: "Reading the clipboard (Local / D-Scan). Click to pause.",
+        watchOffTitle: "Clipboard watch paused. Click to enable.",
+        btnScan: "Scan", btnScanTitle: "Analyze the clipboard now (Local or D-Scan)",
+        homeTitle: "<b>LOCAL</b> INTEL &amp; D-SCAN",
+        homeIntro: "Clipboard intel tool for EVE Online. The clipboard watch is already on: copy your Local or a D-Scan and it tells you who's around and how the hostile fleet is composed. You can turn it off from the Intel button or the tray.",
+        homeLocalH: "Local intel",
+        homeLocalT: "In EVE's Local window: Ctrl+A, Ctrl+C. Pilots appear with kills/losses, efficiency, tags and a dossier.",
+        homeDscanH: "D-Scan analysis",
+        homeDscanT: "Copy a D-Scan (Ctrl+C in the D-Scan window): get the breakdown by ship class, offline.",
+        homeHistoryH: "Share",
+        homeHistoryT: "Any intel or D-Scan can become a shareable link (valid 24h) on capsuleers.app. Find it in History.",
+        homeTip: "Tip: keep the watch on while you play — a sound alerts you the moment a Local or D-Scan is detected.",
+        wcInfo: "Info", wcMini: "Shrink to icon (always-on-top)", wcTray: "Minimize to tray",
+        wcMax: "Maximize", wcClose: "Close", miniExpand: "Click to expand", backHome: "Back",
+        aboutSub: "Clipboard intel for EVE Online", aboutPowered: "powered by",
+        aboutCredit: 'Created by <a href="https://capsuleers.app/en/character/789877270" target="_blank" rel="noopener">TremalJack</a> with the support of the EVE Online community.',
+        aboutDisc1: "<b>Unofficial tool</b> made by fans, not affiliated with nor endorsed by Fenris Creations.",
+        aboutDisc2: "EVE Online and the EVE logo are registered trademarks of Fenris Creations. All rights reserved. All product names, logos and brands mentioned are property of their respective owners. Fenris Creations is in no way responsible for the content or operation of this application, nor can it be held liable for any damage arising from its use.",
+        aboutDisc3: "Data & services: EVE Static Data Export and ESI (Fenris Creations), EVE Ref (prices) and eve-kill (killboard + dossier). D-Scan analysis is 100% offline; Local intel queries eve-kill. <b>Always verify in-game</b>.",
+        modelsTitle: "<b>AI</b> MODEL",
+        modelsHint: "Estimate on the VRAM <b>free now</b>: the more layers fit in GPU, the faster the reply. Closing other apps that use the GPU (browser, Steam…) frees VRAM and speeds up bigger models. Times are indicative for a typical answer.<br>The model you choose becomes the <b>default</b> and is reused on every app restart.",
+        localTitle: "<b>LOCAL</b> INTEL",
+        inputPlaceholder: "// ask: skills, fitting, wormholes…  —  type / for commands",
+        btnSend: "Send",
+        localOn: "Clipboard watch ON — copy the Local from EVE. Click to disable.",
+        localOff: "Local intel from clipboard (off) — click to enable",
+        localDetected: (n) => `Detected a Local of ${n} pilots in the clipboard`,
+        localShowIntel: "Show intel",
+        danger: ["unknown", "low", "medium", "high"],
+        intelDetail: "Intel details", notFound: "no PvP activity in the last 90 days",
+        killAbbr: "K", lossAbbr: "L",
+        localResolving: (n) => `resolving ${n} pilots…`,
+        loadingIntel: "Loading intel…",
+        pilotsCount: (n) => `${n} pilots`,
+        resolvedOf: (r, t) => ` (resolved ${r}/${t})`,
+        dangerousCount: (n) => ` · ${n} dangerous`,
+        shareBtn: "Share", shareTitle: "Share this intel (link valid for 24h)",
+        sharing: "Creating link…", shareProcessing: "Processing the share link…", shareErr: "Couldn't create the share link",
+        shareCopied: "Link copied to clipboard — ready to share",
+        shareExpires: (s) => `expires in ${s}`,
+        shareCopy: "Copy", shareOpen: "Open", shareCopiedShort: "Copied!",
+        historyToggle: "Shared-link history", historyTitle: "Shared links",
+        historyEmpty: "No links shared recently.", historyClear: "Clear",
+        pilotsShort: (n) => `${n} pilots`,
+        objectsShort: (n) => `${n} objects`,
+        intelShort: "Intel", dscanShort: "D-Scan",
+        btnHistory: "History", btnHistoryTitle: "Shared links (history)",
+        historyModalTitle: "SHARED <b>LINKS</b>",
+        dscanTitle: "D-<b>SCAN</b>",
+        dscanDetected: (n) => `D-Scan detected: ${n} objects`,
+        dscanAnalyze: "Analyze",
+        dscanResolving: (n) => `analyzing ${n} objects…`,
+        dscanAnalyzing: "Analyzing the D-Scan…",
+        dscanSystem: "System",
+        dscanShipClasses: "Ship classes", dscanShips: "Ships", dscanOther: "Other entities",
+        dscanUnits: (n) => `${n} units`, dscanEntities: (n) => `${n} entities`,
+        dscanNone: "no objects",
+        dscanCats: { Ships: "Ships", Structures: "Structures", Deployables: "Deployables", Drones: "Drones", Celestials: "Celestials", Others: "Others" },
+        loadingIntelOf: (name) => `Loading intel for ${name}…`,
+        noData: "No data",
+        statKills: "kills", statLoss: "losses", statEff: "eff",
+        fliesWith: "Often flies with", recentShips: "Recently used ships",
+        openKillmail: "Open the killmail on eve-kill.com",
+        sources: "SOURCES //",
+        fitCopy: "Copy", fitCopied: "Copied!",
+        cards: { kill: "Kills", duration: "Duration", isk: "ISK destroyed", iskMin: "ISK/min", alliances: "Alliances", corps: "Corps", multiParty: "Multi-party",
+          kills: "Kills", losses: "Losses", kd: "K/D", iskRatio: "ISK ratio", iskEff: "ISK eff.", soloRate: "Solo %", finalBlows: "Final blows", gang: "Avg gang",
+          iskDestroyed: "ISK destroyed", iskLost: "ISK lost", solo: "Solo kills", peak: "Peak activity", shipsFlown: "Top ships flown", shipsLost: "Top ships lost",
+          dim: { ship_flown: "Top ships flown", ship_lost: "Top ships lost", system: "Most active systems", constellation: "Most active constellations", region: "Most active regions",
+            killed_alliance: "Alliances killed most", dies_to_alliance: "Most killed by (alliances)", killed_corporation: "Corps killed most", dies_to_corporation: "Most killed by (corps)" },
+          ps: { solo: "Solo", small: "Small gang", mid: "Mid gang", fleet: "Fleet", blob: "Blob" }, avgFleet: "Avg fleet",
+          list: { wingmates: "Wingmates", prey: "Favourite prey", hunters: "Hunters" }, huntingGrounds: "Hunting grounds",
+          iskShare: "ISK share", contested: "Contested systems", battle: { won: "Winner", lost: "Defeated" }, fitsFor: "Fits for",
+          fitHint: "Ask \"specs of #X\" (e.g. \"specs of #1\") for that fit's full EFT and analysis.",
+          fs: { high: "High damage", long: "Long range", dps: "DPS", alpha: "alpha", range: "Range", optimal: "Optimal", ehp: "EHP", cap: "Cap", stable: "stable",
+            speed: "Speed", align: "Align", warp: "Warp", targeting: "Targeting", drones: "Drones", activeRep: "Active rep", passiveRegen: "Shield regen",
+            shield: "Shield", armor: "Armor", hull: "Hull", em: "EM", th: "Th", kin: "Kin", exp: "Exp" } },
+        computing: "Computing estimates…",
+        allLayers: (n) => `all ${n} layers in GPU`,
+        someLayers: (g, t) => `only ${g}/${t} layers in GPU`,
+        vramLine: (free, total, pct) => `VRAM: <b>${free} GB free</b> of ${total} GB · ${pct}% in use`,
+        badgeInUse: "in use", badgeRecommended: "recommended",
+        modelsDownloadMore: "Download & use another model",
+        modelsDownload: "Download",
+        modelsDelete: "Delete",
+        modelsDeleteConfirm: (label) => `Delete ${label}? Frees disk space; you can re-download it later.`,
+        rating: { veloce: "fast", accettabile: "acceptable", lento: "slow" },
+        errCap: "Error", errLow: "error",
+        setupTitle: "FIRST <b>RUN</b>",
+        setupIntro: "To run 100% offline, Capsuleers.IA downloads the AI model and the EVE knowledge index once. Pick a model: you can change it or add more later.",
+        setupResume: "If you stop or lose connection, the download resumes where it left off.",
+        setupStart: "Download & start", setupCancel: "Cancel", setupRetry: "Retry",
+        setupInstalled: "already downloaded",
+        setupInclLine: (gb) => `Included (one-time): EVE index + embedding · ~${gb} GB`,
+        setupTotalLine: (gb) => `To download now: ~${gb} GB`,
+        setupErrCap: "Download failed",
+        setupDataTitle: "DATA <b>UPDATE</b>",
+        setupDataIntro: "An update to the EVE knowledge index is available. Your AI model is already installed and will <b>not</b> be re-downloaded: only the data is updated.",
+        setupDataStart: "Update & start",
+        setupDataTotal: (size) => `Data to download: ~${size}`,
+        readyLine: (count, gpu) => `ONLINE · ${count} DOC · GPU:${gpu}`,
+        lblOverview: "Overview", titleOverview: "Character overview on capsuleers.app",
+        lblPvp: "PvP data", titlePvp: "PvP data and killboard on eve-kill.com",
+        stIndex: "Loading index…",
+        stModels: (c) => `Index: ${Number(c).toLocaleString()} documents. Loading models (GPU)…`,
+        stLoadingModel: (n) => `Loading ${n}…`,
+        stReady: (s) => !s.gpu
+          ? `Ready · ${s.model} (GPU unavailable: all on CPU, slow).`
+          : s.onGpu
+            ? `Ready · ${s.model} (GPU: ${s.gpu}, ${s.loaded}/${s.total} layers).`
+            : `Ready · ${s.model} BUT SLOW: only ${s.loaded}/${s.total} layers in GPU (insufficient VRAM). Close apps using the GPU.`,
+      },
+    };
+    const L = I18N[SYS_LANG];
+
+    // Applies the static strings to elements marked with data-i18n[-title|-html|-ph].
+    function applyStaticI18n() {
+      for (const el of document.querySelectorAll("[data-i18n]")) el.textContent = L[el.dataset.i18n];
+      for (const el of document.querySelectorAll("[data-i18n-html]")) el.innerHTML = L[el.dataset.i18nHtml];
+      for (const el of document.querySelectorAll("[data-i18n-title]")) el.title = L[el.dataset.i18nTitle];
+      for (const el of document.querySelectorAll("[data-i18n-ph]")) el.placeholder = L[el.dataset.i18nPh];
+    }
+    applyStaticI18n();
+
+    // Enforce a minimum window width so the header chips never wrap. Measured
+    // from the header's natural content width (depends on font/locale + the live
+    // status text) and pushed to main, which clamps it to the screen.
+    function headerMinWidth() {
+      const header = document.querySelector("header");
+      if (!header) return 0;
+      const cs = getComputedStyle(header);
+      const gap = parseFloat(cs.columnGap) || parseFloat(cs.gap) || 0;
+      const padL = parseFloat(cs.paddingLeft) || 0, padR = parseFloat(cs.paddingRight) || 0;
+      const kids = Array.from(header.children);
+      let w = padL + padR + gap * Math.max(0, kids.length - 1);
+      for (const el of kids) { if (!el.classList.contains("spacer")) w += el.offsetWidth; }
+      return Math.ceil(w + 10);   // small breathing buffer
+    }
+    let _minWT = null;
+    function pushMinWidth() {
+      clearTimeout(_minWT);
+      _minWT = setTimeout(() => { const w = headerMinWidth(); if (w > 200) capsuleers.win.setMinWidth(w); }, 120);
+    }
+    pushMinWidth();
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(pushMinWidth);
+
+    // "Scan now" toolbar button → force an immediate clipboard check (Local or D-Scan).
+    document.getElementById("scan-now").addEventListener("click", () => { primeAudio(); capsuleers.local.scan(); });
+
+    // Home panel: the app has no chat, so #chat shows a static welcome + how-to.
+    function renderHome() {
+      const card = (h, t) => `<div class="home-card"><h3>${esc(h)}</h3><p>${esc(t)}</p></div>`;
+      document.getElementById("chat").innerHTML =
+        `<div class="home">` +
+          `<div class="home-hero"><h1>${L.homeTitle}</h1><p>${esc(L.homeIntro)}</p></div>` +
+          `<div class="home-grid">` +
+            card(L.homeLocalH, L.homeLocalT) +
+            card(L.homeDscanH, L.homeDscanT) +
+            card(L.homeHistoryH, L.homeHistoryT) +
+          `</div>` +
+          `<div class="home-tip">${esc(L.homeTip)}</div>` +
+        `</div>`;
+    }
+    renderHome();
+    showView("home");   // start on the home view (others swap into the same content area)
+  </script>
+</body>
+</html>

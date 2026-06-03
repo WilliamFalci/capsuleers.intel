@@ -1,0 +1,57 @@
+# Cross-platform packaging configuration (electron-builder).
+# Unlike Capsuleers.IA, this build has NO native module (no node-llama-cpp), so a
+# single config covers both OSes — no per-GPU (CUDA/Vulkan) variants. The only
+# on-disk dependency is eve-fit-engine's bundled SDE, which must be asar-unpacked.
+#
+#   npm run pack        → unpacked folder (fast, for quick testing)
+#   npm run dist:linux  → AppImage
+#   npm run dist:win    → NSIS installer (.exe)
+appId: com.capsuleers.intel
+productName: Capsuleers.Intel
+copyright: Copyright © 2026 William Peter Falci
+
+directories:
+  buildResources: build   # build/icon.png (Linux) and build/icon.ico (Windows)
+  output: dist
+
+# What goes into the package. There are no heavy runtime assets to exclude (no
+# models, no RAG index): the app is code + the eve-fit-engine SDE only.
+files:
+  - "**/*"
+  - "!build/**"           # electron-builder picks up the build resources separately
+  - "!**/*.md"
+
+# eve-fit-engine's /node loader reads its bundled SDE (manifest.json + v<hash>/*.json)
+# from disk via fs — those reads fail inside app.asar, so unpack the data dir.
+asarUnpack:
+  - "**/node_modules/eve-fit-engine/data/**"
+
+# Publishing to GitHub Releases (feeds electron-updater and the latest*.yml files).
+# Set owner/repo when the repo is online; for local builds use
+# `electron-builder ... --publish never`.
+publish:
+  provider: github
+  owner: WilliamFalci
+  repo: capsuleers.intel
+  releaseType: release
+
+linux:
+  target:
+    - AppImage
+  icon: build/icon.png
+  category: Game
+  synopsis: Intel da appunti per EVE Online (Local + D-Scan), 100% standalone
+
+win:
+  target:
+    - nsis
+  icon: build/icon.ico
+
+nsis:
+  oneClick: false                          # show the installation wizard
+  allowToChangeInstallationDirectory: true
+  perMachine: false                        # install per-user (no UAC)
+  artifactName: ${productName}-Setup-${version}.${ext}
+
+appImage:
+  artifactName: ${productName}-${version}.${ext}

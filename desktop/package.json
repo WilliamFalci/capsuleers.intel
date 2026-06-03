@@ -1,0 +1,23 @@
+{
+  "name": "capsuleers-intel-desktop",
+  "version": "0.1.0",
+  "description": "Capsuleers.Intel — app desktop standalone (multipiattaforma) per l'intel da appunti di EVE Online (Local + D-Scan). Niente IA, niente modelli.",
+  "type": "module",
+  "main": "src/main.mjs",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "dist:linux": "electron-builder --linux --publish never",
+    "dist:win": "electron-builder --win --publish never"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9",
+    "eve-fit-engine": "^0.1.4"
+  },
+  "devDependencies": {
+    "electron": "^42.3.2",
+    "electron-builder": "^26.8.1"
+  }
+}

@@ -1,0 +1,13 @@
+# Ambiente
+.env
+*.local
+
+# Node
+node_modules/
+dist/
+*.log
+
+# Desktop standalone
+desktop/node_modules/
+desktop/dist/
+*.ipull
