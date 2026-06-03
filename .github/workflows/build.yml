@@ -1,0 +1,69 @@
+# Cross-platform build for Capsuleers.Intel.
+#
+# Auto-runs on every push/merge to `main` (builds the Linux AppImage + Windows
+# NSIS installer on their native runners and uploads them as downloadable
+# workflow artifacts). On a version tag (`v0.1.0`) it ALSO publishes a GitHub
+# Release that feeds electron-updater. Manual runs are allowed via the Actions tab.
+#
+# Unlike Capsuleers.IA there are no native modules (no node-llama-cpp) and no GPU
+# variants, so the matrix is just one runner per OS.
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+# A newer push to main cancels an in-progress build for the same ref.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write          # needed by electron-builder to create/update the release on tags
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: linux
+            args: --linux
+          - os: windows-latest
+            label: windows
+            args: --win
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - run: npm ci
+
+      # Build the installer. Publish to the GitHub Release ONLY on a version tag;
+      # plain pushes to main just build (artifacts are uploaded in the next step).
+      # owner/repo come from electron-builder.yml (publish:).
+      - name: Build (+ publish on tags)
+        run: npx --no-install electron-builder ${{ matrix.args }} --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Downloadable copy of the installers for every build (kept on the workflow run).
+      - uses: actions/upload-artifact@v4
+        with:
+          name: capsuleers-intel-${{ matrix.label }}
+          path: |
+            desktop/dist/*.AppImage
+            desktop/dist/*.exe
+            desktop/dist/latest*.yml
+          if-no-files-found: ignore

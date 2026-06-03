@@ -54,6 +54,22 @@ npm run pack              # unpacked folder, for quick testing
 Builds publish to GitHub Releases (electron-updater handles in-app auto-update). For a local
 build that doesn't publish, the `dist:*` scripts already pass `--publish never`.
 
+### Continuous build & releases (GitHub Actions)
+
+[`.github/workflows/build.yml`](.github/workflows/build.yml) runs automatically:
+
+- **Every push / merge to `main`** → builds the Linux AppImage + Windows NSIS installer on their
+  native runners and uploads them as downloadable **workflow artifacts** (no release is published).
+- **Pushing a version tag `vX.Y.Z`** → builds AND publishes a **GitHub Release** with the installers
+  + `latest*.yml` update manifests (this is what electron-updater consumes). Cut a release with:
+
+  ```bash
+  cd desktop && npm version patch   # bumps desktop/package.json, creates the commit + vX.Y.Z tag
+  git push && git push --tags
+  ```
+
+No secrets to configure: the workflow uses the built-in `GITHUB_TOKEN`.
+
 ## Architecture
 
 Electron app, entry point [`desktop/src/main.mjs`](desktop/src/main.mjs). No server, no database,
