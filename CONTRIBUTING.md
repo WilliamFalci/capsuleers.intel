@@ -52,9 +52,10 @@ npm run dist:win       # NSIS (.exe), build on Windows
 Releases are published to GitHub Releases (electron-updater consumes the `latest*.yml`). For a
 local build that does not publish, the `dist:*` scripts already pass `--publish never`.
 
-CI ([`.github/workflows/build.yml`](.github/workflows/build.yml)) builds both OS on every push to
-`main` (uploading installers as workflow artifacts) and publishes a GitHub Release on a `vX.Y.Z`
-tag. To cut a release: `cd desktop && npm version patch`, then `git push && git push --tags`.
+CI ([`.github/workflows/build.yml`](.github/workflows/build.yml)) builds both OS and **publishes a
+GitHub Release on every push to `main`**. The release version is `<major>.<minor>.<run-number>`
+computed from `desktop/package.json` at build time (not committed back), so it auto-increments for
+electron-updater. Bump `major`/`minor` in `desktop/package.json` to start a new line.
 
 ## Pull requests
 

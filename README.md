@@ -54,19 +54,19 @@ npm run pack              # unpacked folder, for quick testing
 Builds publish to GitHub Releases (electron-updater handles in-app auto-update). For a local
 build that doesn't publish, the `dist:*` scripts already pass `--publish never`.
 
-### Continuous build & releases (GitHub Actions)
+### Continuous build & auto-release (GitHub Actions)
 
-[`.github/workflows/build.yml`](.github/workflows/build.yml) runs automatically:
+[`.github/workflows/build.yml`](.github/workflows/build.yml) runs automatically on **every push /
+merge to `main`**: it builds the Linux AppImage + Windows NSIS installer on their native runners and
+**publishes a GitHub Release** with the installers + `latest*.yml` update manifests (which
+electron-updater consumes for in-app auto-update). The installers are also attached to the workflow
+run as artifacts.
 
-- **Every push / merge to `main`** → builds the Linux AppImage + Windows NSIS installer on their
-  native runners and uploads them as downloadable **workflow artifacts** (no release is published).
-- **Pushing a version tag `vX.Y.Z`** → builds AND publishes a **GitHub Release** with the installers
-  + `latest*.yml` update manifests (this is what electron-updater consumes). Cut a release with:
-
-  ```bash
-  cd desktop && npm version patch   # bumps desktop/package.json, creates the commit + vX.Y.Z tag
-  git push && git push --tags
-  ```
+The release version is computed at build time as `<major>.<minor>.<run-number>` from
+`desktop/package.json` (e.g. `0.1.0` → release `v0.1.42` on run #42), so each release is distinct and
+monotonically increasing — required for auto-update — **without** committing a version bump back to
+the repo. To start a new minor/major line, bump `major`/`minor` in `desktop/package.json` and push to
+`main`; the patch keeps tracking the run number.
 
 No secrets to configure: the workflow uses the built-in `GITHUB_TOKEN`.
 

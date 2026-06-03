@@ -1,27 +1,26 @@
-# Cross-platform build for Capsuleers.Intel.
+# Build AND auto-release Capsuleers.Intel on every push/merge to `main`.
 #
-# Auto-runs on every push/merge to `main` (builds the Linux AppImage + Windows
-# NSIS installer on their native runners and uploads them as downloadable
-# workflow artifacts). On a version tag (`v0.1.0`) it ALSO publishes a GitHub
-# Release that feeds electron-updater. Manual runs are allowed via the Actions tab.
+# Each push to main builds the Linux AppImage + Windows NSIS installer on their
+# native runners and publishes them to a GitHub Release that electron-updater
+# consumes. To get a distinct, monotonically-increasing version per release
+# (required for auto-update) WITHOUT committing a version bump back to the repo
+# (which would re-trigger the workflow), the release version is computed at build
+# time as <major>.<minor>.<github run number> from desktop/package.json.
 #
-# Unlike Capsuleers.IA there are no native modules (no node-llama-cpp) and no GPU
-# variants, so the matrix is just one runner per OS.
+# No native modules (no node-llama-cpp) and no GPU variants, so it's one runner per OS.
 name: build
 
 on:
   push:
     branches: [main]
-    tags: ["v*.*.*"]
   workflow_dispatch:
 
-# A newer push to main cancels an in-progress build for the same ref.
 concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
-  contents: write          # needed by electron-builder to create/update the release on tags
+  contents: write          # electron-builder creates/updates the Release + its tag
 
 jobs:
   build:
@@ -50,15 +49,26 @@ jobs:
 
       - run: npm ci
 
-      # Build the installer. Publish to the GitHub Release ONLY on a version tag;
-      # plain pushes to main just build (artifacts are uploaded in the next step).
-      # owner/repo come from electron-builder.yml (publish:).
-      - name: Build (+ publish on tags)
-        run: npx --no-install electron-builder ${{ matrix.args }} --publish ${{ startsWith(github.ref, 'refs/tags/') && 'always' || 'never' }}
+      # Compute the release version: keep the package.json major.minor, use the
+      # workflow run number as the patch. Every matrix job in the same run gets the
+      # SAME value, so both OSes publish to one release. Not committed (no loop).
+      - name: Set release version
+        shell: bash
+        run: |
+          base=$(node -p "require('./package.json').version")
+          ver="$(echo "$base" | cut -d. -f1,2).${{ github.run_number }}"
+          npm version --no-git-tag-version --allow-same-version "$ver"
+          echo "Releasing v$ver"
+
+      # Build the installer and publish it to the GitHub Release for this version.
+      # owner/repo come from electron-builder.yml (publish:). The release tag
+      # (v<version>) is created automatically against this commit on main.
+      - name: Build & publish
+        run: npx --no-install electron-builder ${{ matrix.args }} --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Downloadable copy of the installers for every build (kept on the workflow run).
+      # Backup copy of the installers on the workflow run itself.
       - uses: actions/upload-artifact@v4
         with:
           name: capsuleers-intel-${{ matrix.label }}
