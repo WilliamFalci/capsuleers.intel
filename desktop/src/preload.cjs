@@ -2,6 +2,12 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("capsuleers", {
+  // Running app version (app.getVersion()) — shown in the About panel.
+  appVersion: () => ipcRenderer.invoke("app:version"),
+  // App data lifecycle: wipe ALL user data (clipboard state, share history, caches,
+  // settings) and quit — the only full-uninstall mechanism on the Linux AppImage,
+  // which has no uninstall hook; a manual full-purge on Windows/macOS.
+  data: { wipeAll: () => ipcRenderer.invoke("data:wipe-all") },
   // Write text to the OS clipboard (used by the "copy" buttons on share links / rows).
   clipboard: { write: (text) => ipcRenderer.invoke("clipboard:write", text) },
   // Custom window controls

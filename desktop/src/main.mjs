@@ -3,15 +3,24 @@
 // the intel features to the renderer over IPC. No local LLM, no RAG index, no model
 // downloads: every feature here is either offline (D-Scan composition via the bundled
 // eve-fit-engine SDE) or a live public-API lookup (eve-kill, ESI, EVE Ref).
-import { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, shell, Notification, dialog, screen, clipboard } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, shell, Notification, dialog, screen, clipboard, session } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { localIntel, characterDetail, sharePilotIntel, analyzeDScan, shareDScan } from "./intel.mjs";
 import { listEntries as listShareHistory, addEntry as addShareHistory, clearEntries as clearShareHistory } from "./intel-history.mjs";
 import { startWatch, stopWatch, isEnabled, scanNow } from "./clipboard-watch.mjs";
 import electronUpdater from "electron-updater";
 const { autoUpdater } = electronUpdater;
+
+// A broken stdout/stderr pipe must NEVER crash the GUI. When the AppImage is launched
+// without an attached terminal (or the parent pipe closes), an async console write can
+// fail with EPIPE — and with no 'error' listener that becomes an uncaughtException,
+// popping Electron's "A JavaScript error occurred in the main process" dialog. stdio
+// write errors are never actionable in a packaged GUI app, so swallow them.
+process.stdout.on("error", () => {});
+process.stderr.on("error", () => {});
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS = path.join(HERE, "..", "assets");
@@ -381,6 +390,33 @@ ipcMain.on("win:set-min-width", (_e, w) => {
   if (b.width < minW) win.setSize(minW, Math.max(b.height, minH));
 });
 ipcMain.handle("clipboard:write", (_e, text) => { clipboard.writeText(String(text ?? "")); return true; });
+ipcMain.handle("app:version", () => app.getVersion());          // shown in the About panel
+
+// Full data wipe: remove everything this app wrote to disk (clipboard-watch state,
+// share history, window state, Electron caches) + the electron-updater download cache,
+// then quit. On Linux the AppImage has NO uninstall hook, so this in-app action is the
+// only way to fully clean up; on Windows the NSIS uninstaller does it automatically
+// (build/installer.nsh).
+ipcMain.handle("data:wipe-all", async () => {
+  // Let Chromium release its own managed storage (cookies / leveldb / cache) — on
+  // Windows those files can't be deleted while the process holds them open.
+  try { await session.defaultSession.clearCache(); } catch { /* */ }
+  try { await session.defaultSession.clearStorageData(); } catch { /* */ }
+  const userData = app.getPath("userData");
+  const folder = path.basename(userData);                 // "capsuleers-intel-desktop"
+  const home = app.getPath("home");
+  const updaterCache = process.platform === "win32"
+    ? path.join(process.env.LOCALAPPDATA || path.join(userData, "..", "..", "Local"), `${folder}-updater`)
+    : process.platform === "darwin"
+      ? path.join(home, "Library", "Caches", `${folder}-updater`)
+      : path.join(process.env.XDG_CACHE_HOME || path.join(home, ".cache"), `${folder}-updater`);
+  for (const dir of [userData, updaterCache]) {
+    try { await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 120 }); } catch { /* */ }
+  }
+  app.isQuitting = true;
+  app.quit();
+  return true;
+});
 
 // Local intel from clipboard: the renderer can drive the toggle and the scan,
 // and re-confirm the last detected Local.

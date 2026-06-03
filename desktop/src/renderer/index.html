@@ -120,6 +120,15 @@
                   border-top: 1px dashed var(--line); padding-top: .9rem; }
     .about-disc p { margin: 0 0 .6rem; }
     .about-disc b { color: #c9cfda; }
+    .about-version { font-family: ui-monospace, monospace; font-size: .72rem; letter-spacing: .12em; color: var(--orange); margin-top: .4rem; }
+    /* Danger zone: full data wipe (share history + settings + caches) */
+    .about-danger { text-align: center; margin-top: 1.1rem; padding-top: .9rem; border-top: 1px dashed var(--line); }
+    .about-danger-hint { font-size: .72rem; color: var(--muted); line-height: 1.4; margin: .55rem 0 0; }
+    .wipe-btn { font-family: ui-monospace, monospace; font-size: .74rem; letter-spacing: .04em; padding: .4rem .8rem;
+                cursor: pointer; background: transparent; color: #e06b6b; border: 1px solid #6b2424; }
+    .wipe-btn:hover { background: #331010; border-color: #e06b6b; }
+    .wipe-btn.busy { opacity: .5; pointer-events: none; }
+    .wipe-confirm { display: inline-flex; gap: .5rem; align-items: center; justify-content: center; margin-top: .6rem; }
     .logo {
       font-family: "Segoe UI", monospace; font-weight: 800; letter-spacing: .14em;
       text-transform: uppercase; font-size: 1.02rem; color: var(--text);
@@ -799,6 +808,7 @@
       <img class="about-logo" src="../../assets/icon-256.png" alt="" />
       <div class="about-title">CAPSULEERS<b>.INTEL</b></div>
       <div class="about-sub" data-i18n="aboutSub">Assistente locale per EVE Online</div>
+      <div class="about-version" id="about-version"></div>
       <div class="about-powered">
         <span data-i18n="aboutPowered">powered by</span> <a href="https://capsuleers.app" target="_blank" rel="noopener">capsuleers.app</a>
       </div>
@@ -812,6 +822,10 @@
         <p data-i18n-html="aboutDisc3">Dati e servizi: EVE Static Data Export ed ESI (Fenris Creations), EVE University Wiki (CC BY-NC-SA),
         eve-survival (missioni PvE), Anoikis (wormhole), EVE Ref (prezzi), eve-kill (killboard + analisi MCP) ed EVE-Scout (Thera/Turnur).
         Le risposte sono generate da un'IA locale e possono contenere errori: <b>verifica sempre in gioco</b>.</p>
+      </div>
+      <div class="about-danger">
+        <button class="wipe-btn" id="wipe-data" data-i18n="wipeBtn">Rimuovi tutti i dati</button>
+        <p class="about-danger-hint" data-i18n="wipeHint">Cancella cronologia condivisioni, impostazioni e cache di questa app, poi la chiude.</p>
       </div>
     </div>
   </div>
@@ -909,6 +923,29 @@
 
     // Info page
     const about = document.getElementById("about");
+    // Show the running app version so "old vs new build" is distinguishable at a glance.
+    capsuleers.appVersion().then((v) => { if (v) document.getElementById("about-version").textContent = "v" + v; }).catch(() => {});
+    // Danger zone: full data wipe with a two-step inline confirm (no native dialogs).
+    const wipeBtn = document.getElementById("wipe-data");
+    let wipeArmed = false;
+    wipeBtn.addEventListener("click", () => {
+      if (wipeBtn.classList.contains("busy") || wipeArmed) return;
+      wipeArmed = true;
+      const wrap = document.createElement("span");
+      wrap.className = "wipe-confirm";
+      const cancel = document.createElement("button");
+      cancel.className = "wipe-btn"; cancel.style.borderColor = "var(--line)"; cancel.style.color = "var(--muted)";
+      cancel.textContent = L.setupCancel;
+      const yes = document.createElement("button");
+      yes.className = "wipe-btn"; yes.textContent = L.wipeConfirmBtn;
+      cancel.addEventListener("click", () => { wrap.remove(); wipeArmed = false; });
+      yes.addEventListener("click", async () => {
+        wrap.remove(); wipeBtn.classList.add("busy"); wipeBtn.textContent = L.computing;
+        try { await capsuleers.data.wipeAll(); } catch { /* app is quitting */ }
+      });
+      wrap.append(cancel, yes);
+      wipeBtn.after(wrap);
+    });
     document.getElementById("wc-info").addEventListener("click", () => about.hidden = false);
     document.getElementById("about-close").addEventListener("click", () => about.hidden = true);
     about.addEventListener("click", (e) => { if (e.target === about) about.hidden = true; });
@@ -1414,6 +1451,8 @@
         wcInfo: "Informazioni", wcMini: "Riduci a icona (always-on-top)", wcTray: "Riduci nel tray",
         wcMax: "Massimizza", wcClose: "Chiudi", miniExpand: "Click per espandere", backHome: "Indietro",
         aboutSub: "Intel da appunti per EVE Online", aboutPowered: "powered by",
+        wipeBtn: "Rimuovi tutti i dati", wipeConfirmBtn: "Conferma rimozione",
+        wipeHint: "Cancella la cronologia condivisioni, le impostazioni e la cache di questa app, poi la chiude. Usalo prima di disinstallare. Operazione irreversibile.",
         aboutCredit: 'Creato da <a href="https://capsuleers.app/it/character/789877270" target="_blank" rel="noopener">TremalJack</a> e dal supporto della community di EVE Online.',
         aboutDisc1: "<b>Strumento non ufficiale</b> creato da fan, non affiliato né approvato da Fenris Creations.",
         aboutDisc2: "EVE Online e il logo EVE sono marchi registrati di Fenris Creations. Tutti i diritti riservati. Tutti i nomi di prodotti, loghi e marchi citati appartengono ai rispettivi proprietari. Fenris Creations non è in alcun modo responsabile del contenuto o del funzionamento di questa applicazione, né può essere ritenuta responsabile per eventuali danni derivanti dal suo utilizzo.",
@@ -1529,6 +1568,8 @@
         wcInfo: "Info", wcMini: "Shrink to icon (always-on-top)", wcTray: "Minimize to tray",
         wcMax: "Maximize", wcClose: "Close", miniExpand: "Click to expand", backHome: "Back",
         aboutSub: "Clipboard intel for EVE Online", aboutPowered: "powered by",
+        wipeBtn: "Remove all data", wipeConfirmBtn: "Confirm removal",
+        wipeHint: "Deletes the share history, settings and cache of this app, then closes it. Use it before uninstalling. This cannot be undone.",
         aboutCredit: 'Created by <a href="https://capsuleers.app/en/character/789877270" target="_blank" rel="noopener">TremalJack</a> with the support of the EVE Online community.',
         aboutDisc1: "<b>Unofficial tool</b> made by fans, not affiliated with nor endorsed by Fenris Creations.",
         aboutDisc2: "EVE Online and the EVE logo are registered trademarks of Fenris Creations. All rights reserved. All product names, logos and brands mentioned are property of their respective owners. Fenris Creations is in no way responsible for the content or operation of this application, nor can it be held liable for any damage arising from its use.",
