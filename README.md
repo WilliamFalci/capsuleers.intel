@@ -17,6 +17,8 @@ nothing to set up on first launch.
 - **Local intel** — copy EVE's Local window (`Ctrl+A`, `Ctrl+C`) and get a per-pilot roster:
   kills / losses / efficiency, danger rating, archetype tags and a per-pilot **dossier**
   (playstyle, frequent wingmates, recently used ships) from [eve-kill](https://eve-kill.com).
+  A summary strip above the list totals alliances / corporations / pilots and lists every
+  **detected alliance** as a chip (logo + name + pilot count).
 - **D-Scan analysis** — copy a D-Scan and get the composition broken down **by ship class**,
   computed **100% offline** from the bundled [eve-fit-engine](https://www.npmjs.com/package/eve-fit-engine)
   SDE (the system is inferred from celestial names).
@@ -26,6 +28,9 @@ nothing to set up on first launch.
   with a live countdown.
 - **Clipboard watch** — an opt-in background watcher detects a Local or a D-Scan the moment you
   copy it (with an audible cue), so it keeps working while you play fullscreen on another monitor.
+  On Wayland it reads the clipboard via `wl-paste` (from `wl-clipboard`) so background copies are
+  seen even when the app isn't focused, falling back to Electron's own clipboard everywhere else
+  (or if `wl-clipboard` isn't installed).
 - **Mini mode** — shrink to an always-on-top icon; minimize to the system tray.
 
 Nothing leaves your machine except the lookups the features explicitly need: pilot names →
@@ -82,7 +87,7 @@ no native modules.
 | [`mcp.mjs`](desktop/src/mcp.mjs) | eve-kill MCP transport (`callTool`). |
 | [`prices.mjs`](desktop/src/prices.mjs) | EVE Ref reference prices (live fetch; `priceByTypeId`). |
 | [`intel-history.mjs`](desktop/src/intel-history.mjs) | Disk-persisted history of generated share links (24h, pruned on read). |
-| [`clipboard-watch.mjs`](desktop/src/clipboard-watch.mjs) | Opt-in clipboard watcher; discriminates Local vs D-Scan. |
+| [`clipboard-watch.mjs`](desktop/src/clipboard-watch.mjs) | Opt-in clipboard watcher; discriminates Local vs D-Scan. Reads via `wl-paste` on Wayland (so background copies are seen), else Electron's clipboard. |
 | [`user-agent.mjs`](desktop/src/user-agent.mjs) | Single source of truth for the outbound `User-Agent`. |
 | [`renderer/index.html`](desktop/src/renderer/index.html) | The whole UI (window chrome, Local/D-Scan/History panels, pilot drawer). |
 

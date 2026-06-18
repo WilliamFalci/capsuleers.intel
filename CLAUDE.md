@@ -45,7 +45,9 @@ variants like IA has).
 - [`renderer/index.html`](desktop/src/renderer/index.html) — the entire UI in one file (CSS theme +
   HTML + script). Contains the window chrome, the **home** panel, the Local / D-Scan / History
   overlays, the pilot detail drawer, and the bilingual (IT/EN, auto from system locale) i18n
-  dictionary. The home panel replaces IA's chat surface.
+  dictionary. The home panel replaces IA's chat surface. The Local panel renders a summary strip
+  (`#local-summary`, built by `aggregateLocal` / `renderLocalSummary`) above the pilot list:
+  alliance / corporation / pilot totals plus a chip per detected alliance (logo + name + count).
 - [`intel.mjs`](desktop/src/intel.mjs) — `localIntel` (per-pilot eve-kill intel for a Local
   roster), `characterDetail` (drawer dossier), `analyzeDScan` (offline composition via the
   bundled `eve-fit-engine` SDE), `sharePilotIntel` / `shareDScan` (POST to capsuleers.app, 24h link).
@@ -60,7 +62,11 @@ variants like IA has).
 - [`intel-history.mjs`](desktop/src/intel-history.mjs) — disk-persisted share-link history
   (`{userData}/intel-share-history.json`, `kind: 'intel'|'dscan'`, pruned past 24h on read).
 - [`clipboard-watch.mjs`](desktop/src/clipboard-watch.mjs) — opt-in watcher; `detectClipboard`
-  discriminates a Local roster from a D-Scan and returns a discriminated payload.
+  discriminates a Local roster from a D-Scan and returns a discriminated payload. Clipboard reads
+  go through `readClipboardText()`: on Linux Wayland (`WAYLAND_DISPLAY` set) it shells out to
+  `wl-paste -n` (Electron's `clipboard.readText()` only returns fresh content while the window is
+  focused on Wayland, so background copies would be missed); it falls back to Electron's clipboard
+  on other platforms, or permanently if `wl-paste` is `ENOENT` (wl-clipboard not installed).
 - [`user-agent.mjs`](desktop/src/user-agent.mjs) — single source of truth for the outbound
   `User-Agent` (`Capsuleers.Intel/<version> (+https://capsuleers.app; info@capsuleers.app)`,
   version from `package.json`). Every external fetch imports it.
