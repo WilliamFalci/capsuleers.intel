@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "electron-updater": "^6.3.9",
-    "eve-fit-engine": "^0.1.11"
+    "eve-fit-engine": "^0.1.12"
   },
   "devDependencies": {
     "electron": "^42.3.2",
