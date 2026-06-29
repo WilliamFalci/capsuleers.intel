@@ -2,6 +2,12 @@
 <html lang="it">
 <head>
   <meta charset="utf-8" />
+  <!-- Content-Security-Policy (defence in depth): the renderer makes NO direct network
+       requests (all egress goes through IPC → main), so connect-src 'self' contains any
+       injected JS — it cannot POST exfiltrated data to a remote host. img-src is pinned to
+       the only image CDN actually used. 'unsafe-inline' is required for the app's own inline
+       <script>/<style>; it does NOT weaken the exfil containment, which is the point here. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https://images.evetech.net data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'" />
   <title>Capsuleers.IA</title>
   <style>
     :root {
@@ -1482,7 +1488,11 @@
       }
     }
 
-    const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    // Escapes &, <, > AND the quote chars: esc()'d values are also placed inside
+    // double-quoted HTML attributes (title="…"), so leaving " / ' raw would allow an
+    // attribute-breakout XSS from any value that reaches an attribute. Encoding both
+    // quotes makes esc() safe in element-content AND attribute contexts.
+    const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     const IMG = "https://images.evetech.net";
     // System language (Electron reflects the system locale in navigator.language).
     const SYS_LANG = (navigator.language || "en").toLowerCase().startsWith("it") ? "it" : "en";

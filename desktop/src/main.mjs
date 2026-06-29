@@ -69,6 +69,10 @@ const MSTR = {
     updMsg: (v) => `La versione ${v} è stata scaricata.`,
     updDetail: "Vuoi riavviare ora per installarla? Puoi anche farlo più tardi: verrà applicata alla prossima chiusura.",
     updLater: "Più tardi", updRestart: "Riavvia e installa",
+    wipeTitle: "Cancella tutti i dati",
+    wipeMsg: "Eliminare TUTTI i dati locali dell'app?",
+    wipeDetail: "Verranno rimossi lo storico dei link condivisi, lo stato del watcher appunti, le cache e le impostazioni, poi l'app si chiuderà. L'operazione non è reversibile.",
+    wipeConfirm: "Elimina tutto",
   },
   en: {
     trayShow: "Show Capsuleers.Intel",
@@ -91,6 +95,10 @@ const MSTR = {
     updMsg: (v) => `Version ${v} has been downloaded.`,
     updDetail: "Restart now to install it? You can also do it later: it will be applied on next quit.",
     updLater: "Later", updRestart: "Restart & install",
+    wipeTitle: "Wipe all data",
+    wipeMsg: "Delete ALL local app data?",
+    wipeDetail: "This removes the share-link history, clipboard-watch state, caches and settings, then quits. This cannot be undone.",
+    wipeConfirm: "Delete everything",
   },
 };
 const M = () => MSTR[(app.getLocale() || "en").toLowerCase().startsWith("it") ? "it" : "en"];
@@ -164,7 +172,9 @@ function createWindow() {
     backgroundColor: "#0a0b0d",   // avoid the white flash at startup
     // backgroundThrottling off: while you game (app in the background, maybe on
     // another monitor) the renderer must keep reacting — the Local banner + sound.
-    webPreferences: { preload: path.join(HERE, "preload.cjs"), backgroundThrottling: false },
+    // sandbox/contextIsolation/nodeIntegration are already the Electron defaults; set them
+    // explicitly so a future Electron default change can't silently weaken the renderer.
+    webPreferences: { preload: path.join(HERE, "preload.cjs"), backgroundThrottling: false, sandbox: true, contextIsolation: true, nodeIntegration: false },
   });
   win.loadFile(path.join(HERE, "renderer", "index.html"));
   applyNormalMinSize();
@@ -398,6 +408,14 @@ ipcMain.handle("app:version", () => app.getVersion());          // shown in the 
 // only way to fully clean up; on Windows the NSIS uninstaller does it automatically
 // (build/installer.nsh).
 ipcMain.handle("data:wipe-all", async () => {
+  // Destructive AND reachable from the renderer via the context bridge: gate it behind a
+  // main-process confirmation so a compromised renderer can't silently wipe the user's data.
+  const mw = M();
+  const { response } = await dialog.showMessageBox(win, {
+    type: "warning", title: mw.wipeTitle, message: mw.wipeMsg, detail: mw.wipeDetail,
+    buttons: [mw.btnNo, mw.wipeConfirm], defaultId: 0, cancelId: 0, noLink: true,
+  });
+  if (response !== 1) return false;
   // Let Chromium release its own managed storage (cookies / leveldb / cache) — on
   // Windows those files can't be deleted while the process holds them open.
   try { await session.defaultSession.clearCache(); } catch { /* */ }

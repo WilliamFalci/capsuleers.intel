@@ -37,6 +37,15 @@ Nothing leaves your machine except the lookups the features explicitly need: pil
 eve-kill for Local intel, item type IDs already resolved offline, and the raw scan → capsuleers.app
 **only when you press Share**. D-Scan analysis is fully offline.
 
+## Privacy & security
+
+No account, no telemetry. The renderer runs sandboxed and context-isolated behind a narrow IPC
+bridge, with a strict **Content-Security-Policy** (`connect-src 'self'` → no exfiltration even if a
+rendering bug occurred) and quote-safe HTML escaping; the packaged binary is hardened with
+**Electron fuses** (`RunAsNode` off, asar-only load) and the full-wipe action requires an explicit
+confirmation. Details: [`docs/security-review-2026-06-29.md`](docs/security-review-2026-06-29.md);
+report issues per [`SECURITY.md`](SECURITY.md).
+
 ## Run from source
 
 Requires Node.js (a recent LTS) on Windows or Linux.

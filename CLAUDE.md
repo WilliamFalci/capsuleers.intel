@@ -91,6 +91,17 @@ via `fs`, which fails inside `app.asar`.
   (`/api/pilot-intel/shares/from-scan`, `/api/scans/from-dscan`, anonymous / no-Origin) that
   the Share buttons POST to. No Site changes are required for this app.
 
+## Security hardening (renderer + packaging)
+
+Hardened 2026-06-29 — full write-up in [`docs/security-review-2026-06-29.md`](docs/security-review-2026-06-29.md). Intel's surface is a **subset** of IA's (no LLM / model-output rendering), so the IA answer-rendering XSS doesn't exist here; the shared invariants still apply. **Don't regress:**
+
+- **Renderer is sandboxed + isolated.** `webPreferences` sets `sandbox: true`, `contextIsolation: true`, `nodeIntegration: false` explicitly. No `<webview>`. A renderer XSS can't reach Node — only the narrow `preload.cjs` bridge.
+- **`esc()` must stay quote-safe** (`& < > " '`): values land inside `title="…"` attributes, so the quote escapes prevent an attribute-breakout XSS.
+- **CSP `<meta>` in `renderer/index.html`** — `connect-src 'self'` contains exfiltration (no direct renderer network — all egress via IPC); `img-src` pinned to `images.evetech.net`. Widen only the matching directive if you add a fetch/CDN.
+- **Electron fuses** via `electronFuses:` in `electron-builder.yml` (`runAsNode` etc. off, `onlyLoadAppFromAsar` on; `enableEmbeddedAsarIntegrityValidation` off pending a tested Windows build).
+- **`data:wipe-all` shows a main-process confirmation** before wiping (`wipe*` keys in `MSTR`).
+- **No hidden egress** — eve-kill/ESI consented, capsuleers.app only on Share. No telemetry, no LLM.
+
 ## Notes
 
 - Outbound `User-Agent` must always be the `user-agent.mjs` constant — don't hardcode a string.
