@@ -14,7 +14,7 @@ Fenris Creations is in no way responsible for it.
 
 | Service | Used for | Notes |
 |---|---|---|
-| **eve-kill** (`eve-kill.com`, MCP) | Per-pilot killboard stats + dossier for Local intel | Only pilot names/IDs are sent. |
+| **eve-kill** (`eve-kill.com`, REST + analitiche) | Per-pilot killboard stats + dossier for Local intel | Only pilot names/IDs are sent. |
 | **EVE Ref** (`data.everef.net`) | Reference item prices | Live fetch, cached in-process. |
 | **EVE Static Data Export / ESI** (Fenris Creations) | Source of the SDE used for D-Scan classification | Bundled offline inside `eve-fit-engine`. |
 | **capsuleers.app** | Share endpoints (only when you press **Share**) | Recomputes the canonical shared payload. |
