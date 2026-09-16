@@ -69,6 +69,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Backup copy of the installers on the workflow run itself.
+      # `retention-days: 1` perche' questa copia e' RIDONDANTE: la consegna vera
+      # e' la Release che electron-builder ha gia' pubblicato col passo sopra
+      # (`--publish always`), e quella non scade. Qui resta solo il modo di
+      # ripescare un binario da una run appena fallita a valle. Il default di 90
+      # giorni terrebbe installer da centinaia di MB per un trimestre.
       - uses: actions/upload-artifact@v4
         with:
           name: capsuleers-intel-${{ matrix.label }}
@@ -77,3 +82,4 @@ jobs:
             desktop/dist/*.exe
             desktop/dist/latest*.yml
           if-no-files-found: ignore
+          retention-days: 1
