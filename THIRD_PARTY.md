@@ -5,10 +5,24 @@ endorsed by Fenris Creations. Source code is MIT (see [LICENSE](LICENSE)).
 
 ## EVE Online IP
 
-EVE Online, the EVE logo, and all related intellectual property are the property of
-**Fenris Creations**. Character portraits, corporation/alliance logos and item icons are served
-from CCP's official image server (`images.evetech.net`). This application is provided "as is";
-Fenris Creations is in no way responsible for it.
+> EVE Online and the EVE logo are the registered trademarks of Fenris Creations. All rights
+> are reserved worldwide. All other trademarks are the property of their respective
+> owners. EVE Online, the EVE logo, EVE and all associated logos and designs are
+> the intellectual property of Fenris Creations. All artwork, screenshots, characters,
+> vehicles, storylines, world facts or other recognizable features of the
+> intellectual property relating to these trademarks are likewise the intellectual
+> property of Fenris Creations.
+>
+> Fenris Creations has granted permission to Capsuleers.Intel to use EVE Online and all
+> associated logos and designs for promotional and information purposes on its
+> website but does not endorse, and is in no way affiliated with,
+> Capsuleers.Intel. Fenris Creations is in no way responsible for the content on or
+> functioning of this software, nor can it be liable for any damage arising from the
+> use of this software.
+
+Character portraits, corporation/alliance logos and item icons are served from CCP's
+official image server (`images.evetech.net`). Static game data is used under the EVE
+Online Developer License Agreement.
 
 ## Runtime services
 

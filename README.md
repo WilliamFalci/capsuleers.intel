@@ -108,7 +108,21 @@ architecture brief.
 
 ## Disclaimer
 
-**Unofficial tool** made by fans — not affiliated with nor endorsed by Fenris Creations.
-EVE Online and the EVE logo are registered trademarks of Fenris Creations. All rights reserved.
-See [THIRD_PARTY.md](THIRD_PARTY.md). Source code is MIT (see [LICENSE](LICENSE)). Always verify
+> EVE Online and the EVE logo are the registered trademarks of Fenris Creations. All rights
+> are reserved worldwide. All other trademarks are the property of their respective
+> owners. EVE Online, the EVE logo, EVE and all associated logos and designs are
+> the intellectual property of Fenris Creations. All artwork, screenshots, characters,
+> vehicles, storylines, world facts or other recognizable features of the
+> intellectual property relating to these trademarks are likewise the intellectual
+> property of Fenris Creations.
+>
+> Fenris Creations has granted permission to Capsuleers.Intel to use EVE Online and all
+> associated logos and designs for promotional and information purposes on its
+> website but does not endorse, and is in no way affiliated with,
+> Capsuleers.Intel. Fenris Creations is in no way responsible for the content on or
+> functioning of this software, nor can it be liable for any damage arising from the
+> use of this software.
+
+**Unofficial tool** made by fans. Source code is MIT (see [LICENSE](LICENSE)); full
+attributions and third-party notices in [THIRD_PARTY.md](THIRD_PARTY.md). Always verify
 in-game.
