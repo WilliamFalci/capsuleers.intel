@@ -31,12 +31,50 @@ let normalMinSize = { w: 72, h: 72 };  // min window size in normal mode (relaxe
 let pendingLocal = null;  // last detected Local, awaiting user confirmation
 let lastLocalResult = null;  // last resolved intel result, kept so "share" has the roster
 let lastDScanRows = null;    // last analyzed D-Scan rows, kept so "share" can re-send them
-// The clipboard watch is ON by default (it's the whole point of the app). We persist
-// only an explicit OFF so a user who disables it keeps it disabled across restarts.
+// The clipboard watch is ON by default (it's the whole point of the app) — but only
+// AFTER the privacy notice below has been accepted. We persist only an explicit OFF
+// so a user who disables it (or answers "not now") keeps it disabled across restarts.
 const WATCH_STATE_FILE = () => path.join(app.getPath("userData"), "clipboard-watch.json");
 function watchEnabledPref() {
   try { return JSON.parse(readFileSync(WATCH_STATE_FILE(), "utf-8")).enabled !== false; } catch { return true; }
 }
+// Privacy notice: what the app reads and where it sends it. Required before the
+// clipboard watch starts and before any pilot name leaves the machine. Versioned:
+// if the set of services changes, bump CONSENT_VERSION and everyone is asked again.
+// Until 0.1.18 the app started reading the clipboard with NO notice at all while its
+// docs claimed a consent step; an upgraded install sees this notice once.
+const CONSENT_VERSION = 1;
+const CONSENT_FILE = () => path.join(app.getPath("userData"), "privacy-consent.json");
+function hasConsent() {
+  try {
+    const c = JSON.parse(readFileSync(CONSENT_FILE(), "utf-8"));
+    return c.accepted === true && Number(c.version) >= CONSENT_VERSION;
+  } catch { return false; }
+}
+function saveConsent() {
+  try {
+    mkdirSync(path.dirname(CONSENT_FILE()), { recursive: true });
+    writeFileSync(CONSENT_FILE(), JSON.stringify({ accepted: true, version: CONSENT_VERSION, ts: Date.now() }));
+  } catch { /* best-effort: worst case the notice is shown again next time */ }
+}
+// Resolves true when consent exists or the user accepts now; false on "not now".
+async function ensureConsent() {
+  if (hasConsent()) return true;
+  const m = M();
+  const opts = {
+    type: "info", title: m.consentTitle, message: m.consentMsg, detail: m.consentDetail,
+    // "Not now" is the DEFAULT: consent must be an explicit click on "Enable", never
+    // an Enter pressed on autopilot or a dialog the system closes on its own.
+    buttons: [m.consentLater, m.btnEnable], defaultId: 0, cancelId: 0, noLink: true,
+  };
+  const { response } = win && !win.isDestroyed()
+    ? await dialog.showMessageBox(win, opts)
+    : await dialog.showMessageBox(opts);
+  if (response !== 1) return false;
+  saveConsent();
+  return true;
+}
+
 function persistWatchState(enabled) {
   try {
     mkdirSync(path.dirname(WATCH_STATE_FILE()), { recursive: true });
@@ -56,7 +94,15 @@ const MSTR = {
     notifBody: (n) => `${n} piloti negli appunti — clicca per l'intel`,
     confirmTitle: "Intel Local",
     confirmMsg: (n) => `Mostrare l'intel per ${n} piloti?`,
-    confirmDetail: "I nomi rilevati negli appunti sembrano una Local di EVE.",
+    confirmDetail: "I nomi rilevati negli appunti sembrano una Local di EVE. Verranno inviati a ESI (Fenris Creations) e a capsuleers.app per l'intel; a eve-kill.com solo se il sito non risponde.",
+    consentTitle: "Capsuleers.Intel — appunti e privacy",
+    consentMsg: "Attivare l'intel dagli appunti?",
+    consentDetail: "Capsuleers.Intel controlla il testo che copi (Ctrl+C) per riconoscere una Local o un D-Scan di EVE, e prima di ogni analisi ti chiede conferma.\n\n" +
+      "• Local: i nomi dei piloti vengono inviati a ESI (Fenris Creations) per ricavarne gli id e a capsuleers.app per l'intel; a eve-kill.com solo se il sito non risponde.\n" +
+      "• D-Scan: l'analisi avviene interamente sul tuo computer.\n" +
+      "• Condivisione: la scansione va a capsuleers.app solo quando premi Condividi (link valido 24 ore).\n\n" +
+      "Nessun altro dato lascia il computer. Puoi disattivare la lettura degli appunti in ogni momento dal tray.",
+    consentLater: "Non ora", btnEnable: "Attiva",
     btnNo: "No", btnShowIntel: "Sì, mostra intel",
     notifTitleD: "Rilevato D-Scan", notifBodyD: (n) => `${n} oggetti sul D-Scan — clicca per l'analisi`,
     confirmTitleD: "Analisi D-Scan", confirmMsgD: (n) => `Analizzare il D-Scan (${n} oggetti)?`,
@@ -82,7 +128,15 @@ const MSTR = {
     notifBody: (n) => `${n} pilots in the clipboard — click for intel`,
     confirmTitle: "Local intel",
     confirmMsg: (n) => `Show intel for ${n} pilots?`,
-    confirmDetail: "The names detected in the clipboard look like an EVE Local.",
+    confirmDetail: "The names detected in the clipboard look like an EVE Local. They will be sent to ESI (Fenris Creations) and capsuleers.app for the intel; to eve-kill.com only if the site does not answer.",
+    consentTitle: "Capsuleers.Intel — clipboard and privacy",
+    consentMsg: "Enable intel from the clipboard?",
+    consentDetail: "Capsuleers.Intel inspects the text you copy (Ctrl+C) to recognize an EVE Local or D-Scan, and asks for confirmation before every analysis.\n\n" +
+      "• Local: pilot names are sent to ESI (Fenris Creations) to resolve their ids and to capsuleers.app for the intel; to eve-kill.com only if the site does not answer.\n" +
+      "• D-Scan: the analysis runs entirely on your computer.\n" +
+      "• Sharing: the scan goes to capsuleers.app only when you press Share (link valid 24 hours).\n\n" +
+      "No other data leaves your computer. You can turn clipboard reading off at any time from the tray.",
+    consentLater: "Not now", btnEnable: "Enable",
     btnNo: "No", btnShowIntel: "Yes, show intel",
     notifTitleD: "D-Scan detected", notifBodyD: (n) => `${n} objects on D-Scan — click to analyze`,
     confirmTitleD: "D-Scan analysis", confirmMsgD: (n) => `Analyze the D-Scan (${n} objects)?`,
@@ -240,11 +294,11 @@ function exitMini() {
 
 // ── Local intel from the clipboard ─────────────────────────────────────────
 
-// Enable/disable the watch. No prompt: it's the app's default mode. The on/off
-// choice is persisted so a deliberate disable survives a restart.
-function toggleClipboardWatch() {
+// Enable/disable the watch. Enabling goes through the privacy notice (once). The
+// on/off choice is persisted so a deliberate disable survives a restart.
+async function toggleClipboardWatch() {
   if (isEnabled()) { stopWatch(); persistWatchState(false); }
-  else { startWatch(onScanDetected); persistWatchState(true); }
+  else if (await ensureConsent()) { startWatch(onScanDetected); persistWatchState(true); }
   refreshTrayMenu();
 }
 
@@ -293,6 +347,9 @@ function runScan(payload) {
 
 // Local roster → per-pilot eve-kill intel (incremental results to the renderer).
 async function runLocalIntel(names) {
+  // Pilot names leave the machine here: never without the privacy notice accepted.
+  // Reachable without the watch (tray "scan now"), so the watch's gate is not enough.
+  if (!(await ensureConsent())) return;
   win?.webContents.send("local:start", { total: names.length });
   try {
     const res = await localIntel(names, {
@@ -365,10 +422,15 @@ app.whenReady().then(async () => {
   app.setAppUserModelId("com.capsuleers.intel");
   Menu.setApplicationMenu(null);  // removes the File/Edit/View… menu
   createWindow();
-  // Intel mode is ON by default — start watching the clipboard immediately, unless the
-  // user explicitly turned it off in a previous session. No consent prompt.
-  if (watchEnabledPref()) startWatch(onScanDetected);
   createTray();       // tray menu reflects the current watch state
+  // Intel mode is ON by default — but the clipboard is read only once the privacy
+  // notice has been accepted. "Not now" persists OFF, so the notice is not repeated at
+  // every launch: it comes back when the user turns the watch on from the tray/button.
+  if (watchEnabledPref()) {
+    if (await ensureConsent()) startWatch(onScanDetected);
+    else persistWatchState(false);
+    refreshTrayMenu();
+  }
   setupAutoUpdate();  // checks for app updates in the background (only if packaged)
 
   app.on("activate", () => {
@@ -438,7 +500,7 @@ ipcMain.handle("data:wipe-all", async () => {
 
 // Local intel from clipboard: the renderer can drive the toggle and the scan,
 // and re-confirm the last detected Local.
-ipcMain.handle("local:toggle", () => { toggleClipboardWatch(); return isEnabled(); });
+ipcMain.handle("local:toggle", async () => { await toggleClipboardWatch(); return isEnabled(); });
 ipcMain.handle("local:state", () => isEnabled());
 ipcMain.on("local:scan", () => scanClipboardNow());
 ipcMain.on("local:confirm", () => { if (pendingLocal) runScan(pendingLocal); });

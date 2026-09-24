@@ -40,7 +40,7 @@ variants like IA has).
 
 - [`main.mjs`](desktop/src/main.mjs) — Electron main process: frameless window + window-state
   persistence, tray, **mini mode** (always-on-top icon), the clipboard-watch wiring
-  (consent dialog → detect → confirm → run), the `local:*` / `dscan:*` / share / history IPC, and
+  (privacy notice → detect → confirm → run), the `local:*` / `dscan:*` / share / history IPC, and
   electron-updater **app** auto-update. **No** engine/model/setup code.
 - [`preload.cjs`](desktop/src/preload.cjs) — context bridge exposing `capsuleers.{clipboard, win, local}`.
 - [`renderer/index.html`](desktop/src/renderer/index.html) — the entire UI in one file (CSS theme +
@@ -110,6 +110,15 @@ Hardened 2026-06-29 — full write-up in [`docs/security-review-2026-06-29.md`](
 - **`data:wipe-all` shows a main-process confirmation** before wiping (`wipe*` keys in `MSTR`).
 - **No hidden egress** — pilot names go to ESI and capsuleers.app for Local intel (eve-kill only as a
   fallback), scans to capsuleers.app only on Share. No telemetry, no LLM.
+- **The privacy notice gates the clipboard AND the network** (`ensureConsent` in `main.mjs`,
+  `privacy-consent.json` in userData, versioned by `CONSENT_VERSION`). It runs at launch before the
+  watch starts, when the watch is turned on from the tray/button, and inside `runLocalIntel` — the
+  tray's "scan now" reaches the network without the watch, so gating only the watch is not enough.
+  **"Not now" is the default button**: consent is an explicit click on "Enable", never an Enter on
+  autopilot. "Not now" persists the watch OFF, so the notice is not repeated at every launch. Until
+  0.1.18 there was NO notice at all (the watch started on first launch) while these docs claimed one;
+  an upgraded install sees it once. Bump `CONSENT_VERSION` whenever the set of contacted services
+  changes. The per-scan confirmation also names where the pilot names go.
 
 ## Notes
 
