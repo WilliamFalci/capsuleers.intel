@@ -28,8 +28,9 @@ Online Developer License Agreement.
 
 | Service | Used for | Notes |
 |---|---|---|
-| **eve-kill** (`eve-kill.com`, REST + analitiche) | Per-pilot killboard stats + dossier for Local intel | Only pilot names/IDs are sent. |
-| **EVE Ref** (`data.everef.net`) | Reference item prices | Live fetch, cached in-process. |
+| **capsuleers.app** (public API v1) | Local intel backend: batch pilot scan, 90-day pilot intel, lifetime totals | Only pilot IDs are sent. |
+| **ESI** (`esi.evetech.net`) | Name → ID resolution, character affiliations, corporation/alliance tickers | Only pilot names/IDs are sent. |
+| **eve-kill** (`eve-kill.com`, REST) | Fallback for Local intel when capsuleers.app does not answer | Only pilot names/IDs are sent. |
 | **EVE Static Data Export / ESI** (Fenris Creations) | Source of the SDE used for D-Scan classification | Bundled offline inside `eve-fit-engine`. |
 | **capsuleers.app** | Share endpoints (only when you press **Share**) | Recomputes the canonical shared payload. |
 

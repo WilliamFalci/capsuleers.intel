@@ -6,7 +6,7 @@ Guidance for Claude Code (claude.ai/code) when working in this repository.
 
 **Capsuleers.Intel** — a standalone, cross-platform (Windows + Linux) Electron desktop **intel
 tool** for **EVE Online**. It does two things from the clipboard: **Local roster intel** (per-pilot
-eve-kill stats + dossier) and **offline D-Scan composition** analysis, plus 24h **share links** on
+stats + dossier from capsuleers.app) and **offline D-Scan composition** analysis, plus 24h **share links** on
 capsuleers.app and a link **history**.
 
 It is the **Intel-only** sibling of **Capsuleers.IA**: same clipboard intel features and visual
@@ -15,7 +15,8 @@ two are **separate, independent repos** — Intel was extracted by copying only 
 features need; it has no shared package or submodule with IA, and IA is never modified from here.
 
 At runtime the app needs **no downloads and no setup**: every feature is either offline (D-Scan
-via the bundled `eve-fit-engine` SDE) or a live public-API lookup (eve-kill, EVE Ref). The
+via the bundled `eve-fit-engine` SDE) or a live public-API lookup (capsuleers.app, ESI; eve-kill only
+as a fallback). The
 installer is code-only (tens of MB).
 
 ## Commands
@@ -48,17 +49,24 @@ variants like IA has).
   dictionary. The home panel replaces IA's chat surface. The Local panel renders a summary strip
   (`#local-summary`, built by `aggregateLocal` / `renderLocalSummary`) above the pilot list:
   alliance / corporation / pilot totals plus a chip per detected alliance (logo + name + count).
-- [`intel.mjs`](desktop/src/intel.mjs) — `localIntel` (per-pilot eve-kill intel for a Local
-  roster), `characterDetail` (drawer dossier), `analyzeDScan` (offline composition via the
-  bundled `eve-fit-engine` SDE), `sharePilotIntel` / `shareDScan` (POST to capsuleers.app, 24h link).
-- [`mcp-intel.mjs`](desktop/src/mcp-intel.mjs) — **only** `dossierExtra` + `characterCard` (the
-  per-pilot dossier from the eve-kill MCP server). IA's large natural-language MCP analytics
-  dispatcher (`maybeMcp`, doctrine specs, battles, flies-with…) was **intentionally dropped** —
-  it lived behind the AI chat. This is why `fit.mjs` and `eveworkbench.mjs` are NOT in this repo.
-- [`mcp.mjs`](desktop/src/mcp.mjs) — eve-kill MCP transport (`callTool`).
-- [`prices.mjs`](desktop/src/prices.mjs) — EVE Ref reference prices. Only `priceByTypeId` is used
-  (live everef fetch); `names_index.json` / `priceByName` are never invoked, so **no data file is
-  needed**.
+- [`capsuleers-api.mjs`](desktop/src/capsuleers-api.mjs) — **capsuleers.app is the intel backend**,
+  through the site's public API v1 (`/api/v1/…`, contract in the site's `shared/api-v1.ts`: stable paths
+  and shapes, rate-limited per IP, 404 "no such entity" apart from 503 "upstream unwell"). The SAME file
+  as capsuleers.ia's — keep the two in step. Every v1 response carries `X-Capsuleers-Api`; without it the
+  deployed site predates v1 and the call is retried on the legacy route (`apiFamily()`). Every call
+  returns `null` on any failure and the caller falls back to eve-kill direct.
+- [`intel.mjs`](desktop/src/intel.mjs) — mirrors the Local + drawer paths of capsuleers.ia's
+  `intel.mjs`. `localIntel`: ESI `/universe/ids` for every name (one request), ONE site scan for every
+  pilot, ESI bulk affiliations — a 62-name Local in ~1 s vs ~32 s through eve-kill (3 calls per pilot,
+  still the fallback path). Its numbers are the **last 90 days** of the site's archive (`window: 90`,
+  "90g" in the UI), so the danger thresholds are 30/150 kills, not the lifetime 100/500; the scan's
+  `efficiency` is a kill/loss COUNT ratio and is never shown as ISK efficiency. `characterDetail`:
+  lifetime totals from the site's profile + 90-day intel. Plus `analyzeDScan` (offline, bundled
+  `eve-fit-engine` SDE) and `sharePilotIntel` / `shareDScan` (POST to capsuleers.app, 24h link).
+  Verified live by `node desktop/tools/verify-intel-backend.mjs` (and `CAPSULEERS_SITE=http://127.0.0.1:9
+  … --fallback` for the eve-kill path).
+  The eve-kill MCP dossier, the EVE Ref prices and the "chi e' X" chain were copied from IA but never
+  reachable from this app's UI; they were removed (IA keeps them behind its AI chat).
 - [`intel-history.mjs`](desktop/src/intel-history.mjs) — disk-persisted share-link history
   (`{userData}/intel-share-history.json`, `kind: 'intel'|'dscan'`, pruned past 24h on read).
 - [`clipboard-watch.mjs`](desktop/src/clipboard-watch.mjs) — opt-in watcher; `detectClipboard`
@@ -100,7 +108,8 @@ Hardened 2026-06-29 — full write-up in [`docs/security-review-2026-06-29.md`](
 - **CSP `<meta>` in `renderer/index.html`** — `connect-src 'self'` contains exfiltration (no direct renderer network — all egress via IPC); `img-src` pinned to `images.evetech.net`. Widen only the matching directive if you add a fetch/CDN.
 - **Electron fuses** via `electronFuses:` in `electron-builder.yml` (`runAsNode` etc. off, `onlyLoadAppFromAsar` on; `enableEmbeddedAsarIntegrityValidation` off pending a tested Windows build).
 - **`data:wipe-all` shows a main-process confirmation** before wiping (`wipe*` keys in `MSTR`).
-- **No hidden egress** — eve-kill/ESI consented, capsuleers.app only on Share. No telemetry, no LLM.
+- **No hidden egress** — pilot names go to ESI and capsuleers.app for Local intel (eve-kill only as a
+  fallback), scans to capsuleers.app only on Share. No telemetry, no LLM.
 
 ## Notes
 

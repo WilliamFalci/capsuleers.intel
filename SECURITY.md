@@ -43,7 +43,7 @@ This is a desktop intel tool for EVE Online. Things especially worth reporting:
 ### Out of scope
 
 - Vulnerabilities in third-party services the app talks to
-  ([eve-kill](https://eve-kill.com), [capsuleers.app](https://capsuleers.app))
+  ([capsuleers.app](https://capsuleers.app), [eve-kill](https://eve-kill.com), ESI)
   — report those to the respective project. See [THIRD_PARTY.md](THIRD_PARTY.md).
 - Reports requiring a compromised local machine or physical access.
 - Missing best-practice hardening with no demonstrable impact.
@@ -51,6 +51,7 @@ This is a desktop intel tool for EVE Online. Things especially worth reporting:
 ## Data handling
 
 Capsuleers.Intel is local-first. Nothing leaves your machine except the lookups
-a feature explicitly needs: pilot names → eve-kill for Local intel, and the raw
+a feature explicitly needs: pilot names → ESI and capsuleers.app for Local intel
+(eve-kill only if the site does not answer), and the raw
 scan → capsuleers.app **only when you press Share** (links expire after 24h).
 D-Scan analysis runs fully offline. See the [README](README.md) for details.

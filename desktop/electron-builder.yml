@@ -20,6 +20,7 @@ files:
   - "**/*"
   - "!build/**"           # electron-builder picks up the build resources separately
   - "!**/*.md"
+  - "!tools/**"           # live verification scripts, not app code
 
 # eve-fit-engine's /node loader reads its bundled SDE (manifest.json + v<hash>/*.json)
 # from disk via fs — those reads fail inside app.asar, so unpack the data dir.

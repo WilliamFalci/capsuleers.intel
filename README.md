@@ -16,7 +16,8 @@ nothing to set up on first launch.
 
 - **Local intel** — copy EVE's Local window (`Ctrl+A`, `Ctrl+C`) and get a per-pilot roster:
   kills / losses / efficiency, danger rating, archetype tags and a per-pilot **dossier**
-  (playstyle, frequent wingmates, recently used ships) from [eve-kill](https://eve-kill.com).
+  (playstyle, frequent wingmates, recently used ships) from [capsuleers.app](https://capsuleers.app)
+  (its own killmail archive, last 90 days; lifetime totals from eve-kill through the site).
   A summary strip above the list totals alliances / corporations / pilots and lists every
   **detected alliance** as a chip (logo + name + pilot count).
 - **D-Scan analysis** — copy a D-Scan and get the composition broken down **by ship class**,
@@ -34,7 +35,7 @@ nothing to set up on first launch.
 - **Mini mode** — shrink to an always-on-top icon; minimize to the system tray.
 
 Nothing leaves your machine except the lookups the features explicitly need: pilot names →
-eve-kill for Local intel, item type IDs already resolved offline, and the raw scan → capsuleers.app
+ESI and capsuleers.app for Local intel (eve-kill only if the site does not answer), item type IDs already resolved offline, and the raw scan → capsuleers.app
 **only when you press Share**. D-Scan analysis is fully offline.
 
 ## Privacy & security
@@ -92,9 +93,7 @@ no native modules.
 | Module | Role |
 |---|---|
 | [`intel.mjs`](desktop/src/intel.mjs) | Local roster intel (`localIntel`), per-pilot detail (`characterDetail`), offline D-Scan composition (`analyzeDScan`), and the share helpers (`sharePilotIntel` / `shareDScan`). |
-| [`mcp-intel.mjs`](desktop/src/mcp-intel.mjs) | Per-pilot **dossier** enrichment (`dossierExtra`, `characterCard`) via the eve-kill MCP server. |
-| [`mcp.mjs`](desktop/src/mcp.mjs) | eve-kill MCP transport (`callTool`). |
-| [`prices.mjs`](desktop/src/prices.mjs) | EVE Ref reference prices (live fetch; `priceByTypeId`). |
+| [`capsuleers-api.mjs`](desktop/src/capsuleers-api.mjs) | capsuleers.app public API v1 client (the intel backend; eve-kill is the fallback). |
 | [`intel-history.mjs`](desktop/src/intel-history.mjs) | Disk-persisted history of generated share links (24h, pruned on read). |
 | [`clipboard-watch.mjs`](desktop/src/clipboard-watch.mjs) | Opt-in clipboard watcher; discriminates Local vs D-Scan. Reads via `wl-paste` on Wayland (so background copies are seen), else Electron's clipboard. |
 | [`user-agent.mjs`](desktop/src/user-agent.mjs) | Single source of truth for the outbound `User-Agent`. |

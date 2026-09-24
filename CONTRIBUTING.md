@@ -24,7 +24,7 @@ See [CLAUDE.md](CLAUDE.md) for the full module map. In short:
 - `desktop/src/main.mjs` — Electron main (window/tray/mini, clipboard-watch, IPC, auto-update).
 - `desktop/src/preload.cjs` — the `capsuleers.*` bridge.
 - `desktop/src/renderer/index.html` — the whole UI.
-- `desktop/src/{intel,mcp-intel,mcp,prices,intel-history,clipboard-watch,user-agent}.mjs` — feature modules.
+- `desktop/src/{intel,capsuleers-api,intel-history,clipboard-watch,user-agent}.mjs` — feature modules.
 
 ## Conventions
 

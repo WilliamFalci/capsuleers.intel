@@ -1,25 +1,22 @@
-// Live intel from eve-kill.com (killboard): characters, corporations, alliances.
-// Public API, no auth, CORS. Requires internet (real-time data).
-import { priceByTypeId } from "./prices.mjs";
-import { dossierExtra, characterCard } from "./mcp-intel.mjs";
+// Live intel on the pilots of a Local, for the roster and the pilot drawer.
+//
+// Primary backend: capsuleers.app (see capsuleers-api.mjs, the site's public API
+// v1) — its own killmail archive for the batch Local scan and the 90-day pilot
+// intel, eve-kill's lifetime totals behind the site's cache. Names resolve through
+// ESI. eve-kill.com is kept ONLY as the fallback when the site does not answer, and
+// for names ESI cannot resolve exactly. Mirrors capsuleers.ia's desktop/src/intel.mjs
+// (Local + drawer paths); the "chi e' X" chat intel lives only there.
 import { USER_AGENT as UA } from "./user-agent.mjs";
 import { loadBundledDataset } from "eve-fit-engine/node";
+import * as site from "./capsuleers-api.mjs";
 
 const BASE = "https://eve-kill.com/api";
 
+// eve-kill REST — fallback only.
 async function get(pathQ) {
-  const r = await fetch(BASE + pathQ, { headers: { "User-Agent": UA } });
+  const r = await fetch(BASE + pathQ, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(12000) });
   if (!r.ok) throw new Error(`eve-kill HTTP ${r.status}`);
   return r.json();
-}
-
-function isk(n) {
-  n = typeof n === "number" ? n : 0;
-  if (n >= 1e12) return (n / 1e12).toFixed(2) + "T";
-  if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
-  if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
-  if (n >= 1e3) return (n / 1e3).toFixed(0) + "k";
-  return String(Math.round(n));
 }
 
 function parseId(hit) {
@@ -27,199 +24,44 @@ function parseId(hit) {
   return m ? { type: m[1], id: Number(m[2]) } : null;
 }
 
-// Batch ID→name resolution via ESI (ship type, system, character, corp, alliance).
-async function resolveNames(ids) {
-  const uniq = [...new Set(ids.filter((x) => x))];
-  const out = new Map();
-  if (!uniq.length) return out;
-  try {
-    const r = await fetch("https://esi.evetech.net/latest/universe/names/", {
-      method: "POST", headers: { "content-type": "application/json", "User-Agent": UA }, body: JSON.stringify(uniq.slice(0, 1000)),
+// Names → ids via ESI /universe/ids: official, exact, case-insensitive, 499 names
+// per request.
+async function esiIds(names) {
+  const uniq = [...new Map(names.map((n) => [n.trim().toLowerCase(), n.trim()])).values()].filter(Boolean);
+  const out = { characters: [], corporations: [], alliances: [] };
+  // /universe/ids rejects the WHOLE batch on a duplicate or an empty string.
+  for (let i = 0; i < uniq.length; i += 499) {
+    const r = await fetch("https://esi.evetech.net/latest/universe/ids/", {
+      method: "POST", headers: { "content-type": "application/json", "User-Agent": UA },
+      body: JSON.stringify(uniq.slice(i, i + 499)), signal: AbortSignal.timeout(12000),
     });
-    if (r.ok) for (const x of await r.json()) out.set(x.id, x.name);
-  } catch { /* offline: no names */ }
+    if (!r.ok) throw new Error(`ESI ids ${r.status}`);
+    const d = await r.json();
+    for (const k of Object.keys(out)) out[k].push(...(d[k] || []));
+  }
   return out;
 }
 
-function shortDate(iso) {
-  const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
-  return m ? `${m[3]}/${m[2]}` : "";
-}
+// A ticker is 1-5 characters with no space. ESI cannot search tickers, and a short
+// word is also often SOMEONE's name ("CONDI" is a pilot AND an alliance ticker): for
+// such queries eve-kill's hits are merged in, so the disambiguation still offers both
+// — as it did when eve-kill was the only search.
+const TICKER_LIKE = /^[^\s]{1,5}$/;
 
-// Recent kills (or losses) of an entity → structured data for the cards.
-async function recentKills(ep, id, kind, limit = 6) {
-  const list = await get(`/${ep}/${id}/${kind}?limit=${limit}&before=99999999999`);
-  const raw = Array.isArray(list) ? list : (list.killmails || list.data || list.items || []);
-  if (!raw.length) return { kills: [], entities: [] };
-  const slice = raw.slice(0, limit);
-  const ids = [];
-  for (const k of slice) {
-    const v = k.victim || {};
-    ids.push(v.ship_type_id, k.solar_system_id, v.character_id || v.corporation_id);
-  }
-  const names = await resolveNames(ids);
-  const kills = [], entities = [];
-  for (const k of slice) {
-    const v = k.victim || {};
-    const whoId = v.character_id || v.corporation_id;
-    const who = names.get(whoId) || "?";
-    const price = await priceByTypeId(v.ship_type_id);
-    kills.push({
-      kind,
-      killmailId: k.killmail_id,
-      shipId: v.ship_type_id,
-      shipName: names.get(v.ship_type_id) || `nave ${v.ship_type_id}`,
-      victimId: whoId || null,
-      victimName: who,
-      isCharacter: !!v.character_id,
-      systemId: k.solar_system_id,
-      system: names.get(k.solar_system_id) || "?",
-      value: price?.adjusted ?? null,
-      time: k.killmail_time,        // UTC = EVE Time
-    });
-    if (whoId && who !== "?") entities.push({ name: who, type: v.character_id ? "character" : "corporation", id: whoId });
-  }
-  return { kills, entities };
-}
-
-export async function search(name) {
-  const d = await get(`/search?q=${encodeURIComponent(name)}&limit=5`);
-  return d.hits || [];
-}
-
-function fmtGroup(name, ticker, type, s) {
-  const label = type === "alliance" ? "Alleanza" : "Corporazione";
-  const lines = [`${name}${ticker ? ` [${ticker}]` : ""} — ${label}`];
-  lines.push(`Kill: ${s.kills || 0} · Perdite: ${s.losses || 0} · Efficienza ISK: ${s.isk_efficiency ?? s.efficiency ?? 0}%`);
-  lines.push(`ISK distrutti: ${isk(s.isk_destroyed)} · ISK persi: ${isk(s.isk_lost)}`);
-  const ships = (s.topShips || []).map((x) => x.ship_name).filter(Boolean).slice(0, 5);
-  if (ships.length) lines.push(`Navi più usate: ${ships.join(", ")}`);
-  const sys = (s.topSystems || []).map((x) => x.system_name || x.name).filter(Boolean).slice(0, 5);
-  if (sys.length) lines.push(`Sistemi più attivi: ${sys.join(", ")}`);
-  const mem = (s.topMembers || []).map((x) => x.name).filter(Boolean).slice(0, 3);
-  if (mem.length) lines.push(`Top membri: ${mem.join(", ")}`);
-  return lines.join("\n");
-}
-
-function fmtCharacter(name, stats, intel) {
-  const lines = [`${name} — Personaggio`];
-  if (stats && (stats.kills != null || stats.losses != null)) {
-    lines.push(`Kill: ${stats.kills || 0} · Perdite: ${stats.losses || 0}`
-      + (stats.isk_efficiency != null ? ` · Efficienza ISK: ${stats.isk_efficiency}%` : ""));
-  }
-  if (intel) {
-    if (intel.dominant_style) {
-      const fc = intel.fc?.likelihood && intel.fc.likelihood !== "None" ? `, probabilità FC: ${intel.fc.likelihood}` : "";
-      lines.push(`Stile di gioco: ${intel.dominant_style}${fc}`);
-    }
-    const flags = [];
-    if (intel.capital_pilot) flags.push("capital pilot");
-    if (intel.is_logi) flags.push("logi");
-    if (intel.bait && intel.bait !== "None") flags.push(`bait: ${intel.bait}`);
-    if (flags.length) lines.push(`Note: ${flags.join(", ")}`);
-    const ships = (intel.ships_flown || []).map((x) => x.name || x.ship_name).filter(Boolean).slice(0, 5);
-    if (ships.length) lines.push(`Navi recenti: ${ships.join(", ")}`);
-  }
-  return lines.join("\n");
-}
-
-// Recent battles (corp/alliance only; the fields already include the names).
-async function recentBattles(type, id, limit = 4) {
-  if (type === "character") return "";
-  const d = await get(`/battles/${type}/${id}?limit=${limit}`);
-  const b = Array.isArray(d) ? d : (d.battles || d.data || d.items || []);
-  if (!b.length) return "";
-  const lines = b.slice(0, limit).map((x) =>
-    `  • ${x.system_name} (${x.region_name}) — ${shortDate(x.start_time)}, ${x.duration_minutes}min, ${x.kill_count} kill, ${isk(x.total_isk_destroyed)} ISK`);
-  return `Ultime battaglie:\n${lines.join("\n")}`;
-}
-
-const _norm = (s) => String(s || "").trim().toLowerCase();
-
-/**
- * Searches for an entity by name and returns an intel summary (or null).
- * If the query EXACTLY matches (by name OR ticker) more than one entity of DIFFERENT
- * types (character/corporation/alliance), it does NOT guess: it returns
- *   { ambiguous: true, name, candidates: [{ type, id, name, ticker }] }
- * so the caller can ask the user which one they meant (resolved via intelForCandidate).
- * opts: { kills, losses, battles } to include the recent data.
- */
-export async function intelFor(name, opts = {}) {
-  let hits;
-  try { hits = await search(name); } catch { return null; }
-  if (!hits.length) return null;
-  const qn = _norm(name);
-  const exact = hits.filter((h) => parseId(h) && (_norm(h.name) === qn || (h.ticker && _norm(h.ticker) === qn)));
-  const byType = new Map();   // one candidate per entity type (first hit wins)
-  for (const h of exact) { const t = parseId(h).type; if (!byType.has(t)) byType.set(t, h); }
-  if (byType.size >= 2) {
-    const candidates = [...byType.values()].map((h) => {
-      const p = parseId(h);
-      return { type: p.type, id: p.id, name: h.name, ticker: h.ticker || "" };
-    });
-    return { ambiguous: true, name, candidates };
-  }
-  // Unambiguous: prefer the single exact match, else the top hit (covers ticker/partial
-  // matches like "vigaz" → the VIGAZ corporation).
-  return intelForHit(exact[0] || hits[0], opts);
-}
-
-// Resolves the intel for a candidate the user picked during disambiguation.
-export async function intelForCandidate(cand, opts = {}) {
-  if (!cand || cand.id == null || !cand.type) return null;
-  return intelForHit({ id: `${cand.type}_${cand.id}`, name: cand.name, ticker: cand.ticker || "" }, opts);
-}
-
-// Resolves the full intel summary for ONE already-chosen search hit
-// ({ id:"character_123", name, ticker? }). Returns { text, entities, kills } or null.
-async function intelForHit(hit, opts = {}) {
-  const pid = parseId(hit);
-  if (!pid) return null;
-  try {
-    const parts = [];
-    let card = null;
-    const entities = [{ name: hit.name, type: pid.type, id: pid.id }];
-    if (pid.type === "character") {
-      const [st, it] = await Promise.allSettled([
-        get(`/characters/${pid.id}/stats`),
-        get(`/characters/${pid.id}/intel?days=90`),
-      ]);
-      parts.push(fmtCharacter(hit.name, st.value, it.value));
-      // Rich pilot card (portrait + stats + playstyle bars + ship/wingmate chips) from the
-      // eve-kill MCP dossier, enriched with FC likelihood / flags from the intel endpoint.
-      const iv = it.value || {};
-      const flags = [];
-      if (iv.capital_pilot) flags.push("capital");
-      if (iv.is_logi) flags.push("logi");
-      if (iv.bait && iv.bait !== "None") flags.push("bait");
-      const fc = iv.fc?.likelihood && iv.fc.likelihood !== "None" ? iv.fc.likelihood : null;
-      const built = await characterCard(pid.id, hit.name, { fc, flags, stats: st.value }).catch(() => null);
-      if (built) { card = built.card; parts.push(`Dossier: ${built.summary}`); }
-      else { const extra = await dossierExtra(pid.id, "character").catch(() => ""); if (extra) parts.push(extra); }
-    } else {
-      const sep = pid.type === "alliance" ? "alliances" : "corporations";
-      const stats = await get(`/${sep}/${pid.id}/stats/alltime`);
-      parts.push(fmtGroup(hit.name, hit.ticker, pid.type, stats));
-      for (const tm of (stats.topMembers || []).slice(0, 3)) {
-        if (tm.character_id && tm.name) entities.push({ name: tm.name, type: "character", id: tm.character_id });
-      }
-    }
-    const ep = pid.type === "alliance" ? "alliances" : pid.type === "corporation" ? "corporations" : "characters";
-    const empty = { kills: [], entities: [] };
-    const kills = [];
-    if (opts.kills) { const k = await recentKills(ep, pid.id, "kills").catch(() => empty); kills.push(...k.kills); entities.push(...k.entities); }
-    if (opts.losses) { const l = await recentKills(ep, pid.id, "losses").catch(() => empty); kills.push(...l.kills); entities.push(...l.entities); }
-    if (opts.battles) { const b = await recentBattles(pid.type, pid.id).catch(() => ""); if (b) parts.push(b); }
-    if (kills.length) parts.push("(I kill recenti sono elencati come schede dettagliate sotto la risposta.)");
-    return {
-      text: `INTEL eve-kill.com (dati live):\n${parts.join("\n")}\nFonte: https://eve-kill.com/${pid.type}/${pid.id}`,
-      entities,
-      kills,
-      card,
-    };
-  } catch {
-    return null;
-  }
+// Pilot stats + intel: the site first (lifetime totals from its eve-kill cache, the
+// 90-day intel from its own archive), eve-kill direct only for what the site did not
+// return. { stats, intel, fromSite } — either half may be null.
+async function pilotData(id) {
+  const [prof, pi] = await Promise.all([site.entityProfile("character", id), site.pilotIntel(id)]);
+  let stats = prof?.stats || null, intel = pi?.intel || null;
+  const fromSite = !!(stats || intel);
+  const [st, it] = await Promise.allSettled([
+    stats ? null : get(`/characters/${id}/stats`),
+    intel || pi ? null : get(`/characters/${id}/intel?days=90`),
+  ]);
+  stats ||= st.status === "fulfilled" ? st.value : null;
+  intel ||= it.status === "fulfilled" ? it.value : null;
+  return { stats, intel, fromSite };
 }
 
 // ── Group intel for a Local (list of names from the clipboard) ──────────────
@@ -267,11 +109,15 @@ function dangerScore(stats, intel) {
   return s;
 }
 
-// Resolves a single character by exact name → ID via eve-kill search.
+// Resolves a single character by exact name → ID: ESI first (exact), eve-kill's
+// fuzzy search only if ESI does not know the name.
 async function charIdByName(name) {
+  try {
+    const d = await esiIds([name]);
+    if (d.characters[0]) return { id: d.characters[0].id, name: d.characters[0].name };
+  } catch { /* ESI down: try eve-kill */ }
   let hits;
-  try { hits = await search(name); } catch { return null; }
-  if (!hits?.length) return null;
+  try { hits = (await get(`/search?q=${encodeURIComponent(name)}&limit=5`)).hits || []; } catch { return null; }
   const hit = hits.find((h) => /^character_/.test(String(h.id))) || null;
   if (!hit) return null;
   const pid = parseId(hit);
@@ -327,26 +173,108 @@ async function pool(tasks, limit, onEach) {
   return results;
 }
 
+// Danger from the site's 90-day scan row. The thresholds are NOT the lifetime ones
+// (100/500 kills): measured on 30 real pilots, 90-day kills sit at p50 15 / p75 150
+// while lifetime sits at 173 / 3 112, and 30/150 reproduced the lifetime classes on
+// 20 of 30 — the rest being exactly the cases a Local wants reclassified (a 6 000-kill
+// veteran idle for months is not a threat now). The row's `efficiency` is a kill/loss
+// COUNT ratio, not ISK efficiency, so it is deliberately not used here.
+function dangerScore90(row) {
+  if (!row) return 0;
+  const k = row.total_kills || 0, intel = row.intel || {};
+  let s = 1;
+  if (k >= 30 || intel.is_logi) s = 2;
+  const fc = intel.fc?.likelihood;
+  const fcHot = fc && fc !== "None" && fc !== "Low";
+  if (intel.capital_pilot || fcHot || k >= 150 || (intel.bait && intel.bait !== "None")) s = 3;
+  return s;
+}
+
+async function esiAffiliations(ids) {
+  const out = new Map();
+  for (let i = 0; i < ids.length; i += 1000) {
+    const r = await fetch("https://esi.evetech.net/latest/characters/affiliation/", {
+      method: "POST", headers: { "content-type": "application/json", "User-Agent": UA },
+      body: JSON.stringify(ids.slice(i, i + 1000)), signal: AbortSignal.timeout(12000),
+    });
+    if (!r.ok) throw new Error(`ESI affiliation ${r.status}`);
+    for (const a of await r.json()) out.set(a.character_id, a);
+  }
+  return out;
+}
+
+// The whole Local in a handful of requests: ESI ids for every name (1), the site's
+// scan for every pilot (1 per 250), ESI affiliations (1 per 1000), then one ESI call
+// per DISTINCT corp/alliance (cached). Null when a step fails → per-pilot fallback.
+async function localIntelBatch(target, onProgress) {
+  let ids, scan, aff;
+  try {
+    ids = await esiIds(target);
+    const chars = ids.characters;
+    if (!chars.length) return null;
+    [scan, aff] = await Promise.all([site.scanPilots(chars.map((c) => c.id)), esiAffiliations(chars.map((c) => c.id))]);
+  } catch { return null; }
+  if (!scan) return null;
+  const byName = new Map(ids.characters.map((c) => [c.name.toLowerCase(), c]));
+  const rows = [];
+  let done = 0;
+  await Promise.all(target.map(async (n) => {
+    const c = byName.get(n.toLowerCase());
+    if (!c) { rows.push({ name: n, id: null, danger: 0, kills: null, losses: null, eff: null, flags: [], found: false }); return; }
+    const a = aff.get(c.id) || {};
+    const [corp, alliance] = await Promise.all([
+      groupInfo("corporations", a.corporation_id),
+      a.alliance_id ? groupInfo("alliances", a.alliance_id) : null,
+    ]);
+    const row = scan.get(c.id) || null;   // absent = no killmail in the window, not "zero"
+    const intel = row?.intel || {};
+    const flags = [];
+    if (intel.capital_pilot) flags.push("capital");
+    if (intel.is_logi) flags.push("logi");
+    if (intel.fc?.likelihood && intel.fc.likelihood !== "None") flags.push("FC:" + intel.fc.likelihood);
+    if (intel.bait && intel.bait !== "None") flags.push("bait");
+    if (intel.dominant_style) flags.push(intel.dominant_style);
+    rows.push({
+      name: c.name, id: c.id,
+      danger: dangerScore90(row),
+      kills: row ? row.total_kills ?? 0 : null,
+      losses: row ? row.total_losses ?? 0 : null,
+      eff: null,
+      window: 90,
+      flags,
+      corpId: corp?.id ?? null, corpTicker: corp?.ticker || "", corpName: corp?.name || "",
+      allianceId: alliance?.id ?? null, allianceTicker: alliance?.ticker || "", allianceName: alliance?.name || "",
+      found: true,
+    });
+    onProgress?.(++done, target.length);
+  }));
+  return rows;
+}
+
 /**
  * Resolves the concise intel for a list of names (Local).
  * - cap: maximum number of pilots to resolve (the rest stay stubs)
  * - onProgress(done, total): progress callback
- * Returns { rows, total, resolved, capped } with rows sorted alphabetically.
+ * Returns { rows, total, resolved, capped, source } with rows sorted alphabetically.
+ * Kills/losses are the site archive's last 90 days (`window: 90` on each row); only
+ * if the site is unreachable does it fall back to per-pilot eve-kill lifetime stats.
  */
 export async function localIntel(names, { cap = 100, concurrency = 4, onProgress } = {}) {
-  const uniq = [...new Set((names || []).map((n) => n.trim()).filter(Boolean))];
+  const uniq = [...new Map((names || []).map((n) => n.trim()).filter(Boolean).map((n) => [n.toLowerCase(), n])).values()];
   const total = uniq.length;
   const target = uniq.slice(0, cap);
   const capped = total > cap;
 
-  const tasks = target.map((n) => () => characterRow(n));
-  const resolved = await pool(tasks, concurrency, (_r, done) => onProgress?.(done, target.length));
-
-  const rows = resolved.filter(Boolean);
+  let rows = await localIntelBatch(target, onProgress);
+  const source = rows ? "capsuleers" : "eve-kill";
+  if (!rows) {
+    const tasks = target.map((n) => () => characterRow(n));
+    rows = (await pool(tasks, concurrency, (_r, done) => onProgress?.(done, target.length))).filter(Boolean);
+  }
   for (const n of uniq.slice(cap)) rows.push({ name: n, id: null, danger: 0, kills: null, losses: null, eff: null, flags: [], found: false });
 
   rows.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
-  return { rows, total, resolved: target.length, capped };
+  return { rows, total, resolved: target.length, capped, source };
 }
 
 // ── Share a Local intel snapshot via capsuleers.app ─────────────────────────
@@ -356,7 +284,7 @@ export async function localIntel(names, { cap = 100, concurrency = 4, onProgress
 // /characters/analyze data) and returns a 24h share link. Called from the main
 // process: the request carries no Origin header, so it passes the site's API
 // origin guard. CAPSULEERS_SITE overrides the host for local dev.
-const SITE_BASE = process.env.CAPSULEERS_SITE || "https://capsuleers.app";
+const SITE_BASE = site.SITE_BASE;
 
 export async function sharePilotIntel(characterIds) {
   const ids = [...new Set((characterIds || []).map(Number).filter((n) => Number.isInteger(n) && n > 0))];
@@ -491,13 +419,9 @@ export async function analyzeDScan(rows) {
 export async function characterDetail({ id, name } = {}) {
   if (id == null && name) { const idn = await charIdByName(name); if (idn) { id = idn.id; name = idn.name; } }
   if (id == null) return null;
-  const [st, it, aff] = await Promise.allSettled([
-    get(`/characters/${id}/stats`),
-    get(`/characters/${id}/intel?days=90`),
-    affiliation(id),
-  ]);
-  const stats = st.status === "fulfilled" ? st.value : null;
-  const intel = it.status === "fulfilled" ? it.value : null;
+  const [pd, aff] = await Promise.allSettled([pilotData(id), affiliation(id)]);
+  const stats = pd.status === "fulfilled" ? pd.value.stats : null;
+  const intel = pd.status === "fulfilled" ? pd.value.intel : null;
   const { corp = null, alliance = null } = aff.status === "fulfilled" ? aff.value : {};
   const ps = intel?.playstyle || {};
   return {
