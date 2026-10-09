@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/brand/emblem.svg" width="180" alt="Capsuleers.Intel"></p>
+
 # Capsuleers.Intel
 
 **Capsuleers.Intel** — a **standalone, cross-platform** desktop **intel tool** for

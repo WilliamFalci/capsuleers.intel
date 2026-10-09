@@ -124,3 +124,14 @@ Hardened 2026-06-29 — full write-up in [`docs/security-review-2026-06-29.md`](
 
 - Outbound `User-Agent` must always be the `user-agent.mjs` constant — don't hardcode a string.
 - The app is bilingual via the system locale only (no in-app language switch), like IA.
+
+## Icone e marchio
+
+Le icone dell'app (`desktop/assets/icon-{32,64,256}.png`, `tray.png`,
+`desktop/build/icon.png` e `icon.ico`) e `docs/brand/emblem*.svg` vengono dal
+generatore del sito — `npm run brand:icons -- <cartella>` in capsuleers.website
+(`scripts/brand/`), che rende l'emblema Capsuleers con il suffisso
+`.INTEL`. Non ritoccarle a mano e non generarle da qui: si rifanno li' e si
+copiano. Fino a 64 px (tray, icon-32/64, le taglie piccole dell'`.ico`) si usa
+la variante **mark** senza testo, che a quelle dimensioni resta leggibile;
+icon-256, icon.png e le taglie 128/256 dell'`.ico` sono l'emblema pieno.
