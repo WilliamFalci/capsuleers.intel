@@ -39,9 +39,9 @@ jobs:
       run:
         working-directory: desktop
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -74,7 +74,7 @@ jobs:
       # (`--publish always`), e quella non scade. Qui resta solo il modo di
       # ripescare un binario da una run appena fallita a valle. Il default di 90
       # giorni terrebbe installer da centinaia di MB per un trimestre.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: capsuleers-intel-${{ matrix.label }}
           path: |
