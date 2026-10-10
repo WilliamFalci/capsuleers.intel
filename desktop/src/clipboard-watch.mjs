@@ -14,8 +14,10 @@ import { execFileSync } from "node:child_process";
 // is focused, so a Local/D-Scan copied with the app in the background goes unseen. wl-paste
 // (wl-clipboard) reads via the data-control protocol regardless of focus, so we prefer it on
 // Wayland and fall back to Electron's clipboard elsewhere (or if wl-clipboard isn't installed).
+// From Electron 44 clipboard.readText() returns a Promise (W3C-style clipboard rewrite), up to
+// 43 a string: this reader is async and awaits it, which is correct for both.
 let wlPasteOk = process.platform === "linux" && !!process.env.WAYLAND_DISPLAY;
-function readClipboardText() {
+async function readClipboardText() {
   if (wlPasteOk) {
     try {
       return execFileSync("wl-paste", ["-n"], { encoding: "utf8", timeout: 1000, maxBuffer: 4 * 1024 * 1024 });
@@ -24,7 +26,7 @@ function readClipboardText() {
       wlPasteOk = false;                           // wl-clipboard not installed → fall back to Electron from now on
     }
   }
-  try { return clipboard.readText(); } catch { return ""; }
+  try { return (await clipboard.readText()) ?? ""; } catch { return ""; }
 }
 
 let timer = null;
@@ -102,8 +104,13 @@ export function detectClipboard(text) {
   return null;
 }
 
-function tick() {
-  const t = readClipboardText();
+let ticking = false;        // an async read still in flight: don't overlap ticks
+async function tick() {
+  if (ticking) return;
+  ticking = true;
+  let t;
+  try { t = await readClipboardText(); } finally { ticking = false; }
+  if (!enabled) return;     // stopped while the read was in flight
   if (t === lastText) return;
   lastText = t;
   const payload = detectClipboard(t);
@@ -116,11 +123,13 @@ function tick() {
   onDetect?.(payload);
 }
 
-export function startWatch(cb) {
+export async function startWatch(cb) {
   onDetect = cb;
-  lastText = readClipboardText();  // don't trigger on content already present
+  enabled = true;                  // isEnabled() must flip immediately (tray/renderer read it)
+  const seed = await readClipboardText();  // don't trigger on content already present
+  if (!enabled) return;            // stopped while seeding
+  lastText = seed;
   if (!timer) timer = setInterval(tick, 800);
-  enabled = true;
 }
 
 export function stopWatch() {
@@ -132,6 +141,6 @@ export function isEnabled() { return enabled; }
 
 // Immediate manual scan of the clipboard (for the "scan now" button).
 // Returns the discriminated payload ({ kind:'local'|'dscan', ... }) or null.
-export function scanNow() {
-  try { return detectClipboard(readClipboardText()); } catch { return null; }
+export async function scanNow() {
+  try { return detectClipboard(await readClipboardText()); } catch { return null; }
 }

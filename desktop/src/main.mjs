@@ -375,15 +375,16 @@ async function runDScan(rows) {
 }
 
 // Tray "scan now" button: forces an immediate check of the clipboard.
-function scanClipboardNow() {
-  const payload = scanNow();
+async function scanClipboardNow() {
+  const payload = await scanNow();
   if (payload) confirmScan(payload);
   else {
     showWindow();
     const m = M();
     // Diagnostic preview of the actual clipboard, so a user whose EVE copy isn't
     // recognized can report what the client really puts on the clipboard.
-    const raw = (clipboard.readText() || "");
+    let raw = "";
+    try { raw = (await clipboard.readText()) || ""; } catch { /* clipboard busy */ }
     const lines = raw.split(/\r\n|\r|\n/);
     const preview = raw.trim()
       ? `[${m.cbLines}: ${lines.length}]\n` + lines.slice(0, 6).map((l) => "» " + l).join("\n").slice(0, 700)
@@ -461,7 +462,9 @@ ipcMain.on("win:set-min-width", (_e, w) => {
   const b = win.getBounds();
   if (b.width < minW) win.setSize(minW, Math.max(b.height, minH));
 });
-ipcMain.handle("clipboard:write", (_e, text) => { clipboard.writeText(String(text ?? "")); return true; });
+// Electron 44+: writeText returns a Promise — await it so a failure rejects the invoke
+// instead of becoming an unhandled rejection in the main process.
+ipcMain.handle("clipboard:write", async (_e, text) => { await clipboard.writeText(String(text ?? "")); return true; });
 ipcMain.handle("app:version", () => app.getVersion());          // shown in the About panel
 
 // Full data wipe: remove everything this app wrote to disk (clipboard-watch state,
@@ -517,7 +520,7 @@ ipcMain.handle("local:share", async () => {
   if (!ids.length) return { error: "no-pilots" };
   try {
     const share = await sharePilotIntel(ids);   // { id, url, expiresAt, pilotCount }
-    try { clipboard.writeText(share.url); } catch { /* clipboard busy */ }
+    try { await clipboard.writeText(share.url); } catch { /* clipboard busy */ }
     try { await addShareHistory({ ...share, kind: "intel", count: share.pilotCount }); } catch { /* history non-critical */ }
     return { ...share, copied: true };
   } catch (e) {
@@ -531,7 +534,7 @@ ipcMain.handle("dscan:share", async () => {
   if (!rows.length) return { error: "no-dscan" };
   try {
     const share = await shareDScan(rows);   // { id, url, expiresAt, objectCount }
-    try { clipboard.writeText(share.url); } catch { /* clipboard busy */ }
+    try { await clipboard.writeText(share.url); } catch { /* clipboard busy */ }
     try { await addShareHistory({ ...share, kind: "dscan", count: share.objectCount }); } catch { /* history non-critical */ }
     return { ...share, copied: true };
   } catch (e) {
