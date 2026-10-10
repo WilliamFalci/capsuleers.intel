@@ -13,11 +13,11 @@
     "dist:win": "electron-builder --win --publish never"
   },
   "dependencies": {
-    "electron-updater": "^6.3.9",
+    "electron-updater": "^6.8.9",
     "eve-fit-engine": "^0.2.10"
   },
   "devDependencies": {
     "electron": "^42.3.2",
-    "electron-builder": "^26.8.1"
+    "electron-builder": "^26.15.3"
   }
 }
