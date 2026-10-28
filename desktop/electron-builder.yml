@@ -47,7 +47,7 @@ electronFuses:
 # `electron-builder ... --publish never`.
 publish:
   provider: github
-  owner: WilliamFalci
+  owner: capsuleers-app
   repo: capsuleers.intel
   releaseType: release
 

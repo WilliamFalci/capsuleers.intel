@@ -14,7 +14,7 @@ are not patched.
 Report privately, through either channel:
 
 - **GitHub Security Advisories** — use the
-  [*Report a vulnerability*](https://github.com/WilliamFalci/capsuleers.intel/security/advisories/new)
+  [*Report a vulnerability*](https://github.com/capsuleers-app/capsuleers.intel/security/advisories/new)
   button on this repository (preferred).
 - **Email** — [info@capsuleers.app](mailto:info@capsuleers.app).
 

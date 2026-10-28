@@ -6,7 +6,7 @@
 **EVE Online**. Copy your **Local** roster or a **D-Scan** and it tells you, at a glance,
 **who you're up against** and **how the hostile fleet is composed**.
 
-It is the **Intel-only** sibling of [**Capsuleers.IA**](https://github.com/WilliamFalci/capsuleers.ia):
+It is the **Intel-only** sibling of [**Capsuleers.IA**](https://github.com/capsuleers-app/capsuleers.ia):
 same clipboard intel features, same look — **without** the local AI assistant, the language
 models or the RAG knowledge index. So the download is **tens of MB instead of gigabytes**, with
 nothing to set up on first launch.
